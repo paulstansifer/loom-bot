@@ -56,6 +56,18 @@ const BRIDGE = 4;
  * shadow.) */
 const MIN_WIDTH = 0.2;
 const MIN_HEIGHT = 0.6;
+/** A glyph past a gap more than this many times the usual one, and further off-center than this
+ * fraction of its lane's width, is a stray (see `dropStrays`). */
+const STRAY_GAP = 2;
+const STRAY_OFFSET = 0.15;
+/** An X crossing out a clue's cell (see `crossedCells`): how far its length can be from a whole
+ * number of cells, how close (as a fraction of a cell) its ink must come to each point along its
+ * diagonals, and at what fraction of them. */
+const CELL_SLACK = 0.25;
+const X_REACH = 0.08;
+const X_COVERAGE = 0.9;
+/** How much of a blob's contrast its ink must have to be strong (not an anti-aliased edge). */
+const STRONG_INK = 0.8;
 const DIRECTIONS = [
   [0, 1],
   [1, 0],
@@ -98,6 +110,8 @@ export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
     f.glyphs = f.glyphs.filter(big);
     f.spare = f.spare.filter(big);
   }
+  dropStrays(columnLanes, columns);
+  dropStrays(rowLanes, rows);
 
   const columnStep = stackStep(columnLanes, columns);
   return {
@@ -142,6 +156,57 @@ function along(lane: Lane, g: Glyph): number {
 function across(lane: Lane, g: Glyph): number {
   const middle = lane.vertical ? (g.x0 + g.x1) / 2 : (g.y0 + g.y1) / 2;
   return middle - (lane.start + lane.width / 2);
+}
+
+/** How far `g`'s near end, and its far end, are from the grid, along `lane`. */
+function reach(lane: Lane, g: Glyph): [number, number] {
+  return lane.vertical
+    ? [lane.length - g.y1, lane.length - g.y0]
+    : [lane.length - g.x1, lane.length - g.x0];
+}
+
+/**
+ * Moves each lane's glyphs, from the first stray outward, to its spares. A stray is past a gap
+ * more than `STRAY_GAP` times the usual one between glyphs (in lanes of that direction), and
+ * further off-center than `STRAY_OFFSET` of the lane's width (compared with the usual glyph's
+ * offset, since some apps don't center the clues). Clues are neither: sample 24's "FILLS 103/144"
+ * above a column's clues, and a bit of sample 29's background left of a row's, are both. Neither
+ * by itself is enough: real clues are as far apart in some samples, and two-digit numbers in
+ * narrow columns are as far off-center.
+ */
+function dropStrays(lanes: Lane[], found: Found[]): void {
+  const walks = found.map((f, i) => {
+    const lane = lanes[i]!;
+    const sorted = [...f.glyphs].sort(
+      (p, q) => reach(lane, p)[0] - reach(lane, q)[0]
+    );
+    let frontier = -Infinity;
+    return sorted.map((g) => {
+      const [near, far] = reach(lane, g);
+      const gap = near - frontier;
+      frontier = Math.max(frontier, far);
+      return { g, gap, offset: across(lane, g) / lane.width };
+    });
+  });
+  const gaps = walks.flatMap((w) =>
+    w.slice(1).flatMap(({ gap }) => (gap > 0 ? [gap] : []))
+  );
+  if (gaps.length === 0) return;
+  const usualGap = median(gaps);
+  const usualOffset = median(walks.flat().map(({ offset }) => offset));
+  walks.forEach((w, i) => {
+    const n = w.findIndex(
+      ({ gap, offset }, k) =>
+        k > 0 &&
+        gap > STRAY_GAP * usualGap &&
+        Math.abs(offset - usualOffset) > STRAY_OFFSET
+    );
+    if (n < 0) return;
+    const strays = new Set(w.slice(n).map(({ g }) => g));
+    const f = found[i]!;
+    f.glyphs = f.glyphs.filter((g) => !strays.has(g));
+    f.spare.push(...strays);
+  });
 }
 
 /** How far the clue nearest the grid usually is from it. (The clues are aligned against the
@@ -311,6 +376,19 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
     if (good.length === parts.length) {
       candidates.push(...good);
       continue;
+    }
+    // (Its color, where its ink is strong.)
+    const strong = (p: number): RGB | undefined => {
+      if (diff[p]! < STRONG_INK * contrast) return undefined;
+      const a = Math.floor(p / width);
+      const i = pixel(a, p - a * width);
+      return [raster.data[i]!, raster.data[i + 1]!, raster.data[i + 2]!];
+    };
+    for (const part of parts) {
+      if (isGlyph(part, pitch)) continue;
+      const crosses = crossedCells(part, fine, width, strong, nextLabel, pitch);
+      nextLabel += crosses.length;
+      good.push(...crosses);
     }
     candidates.push(...good);
     // (Only what's left over: the glyphs already found aren't found again.)
@@ -505,6 +583,92 @@ function isGlyph(blob: Blob, pitch: number): boolean {
     blob.pixels >= 4 &&
     Math.max(blob.a1 - blob.a0, blob.c1 - blob.c0) >= 0.12 * pitch
   );
+}
+
+/**
+ * The cells that `blob` (which can't be a glyph as it is) crosses out, each as a blob of its own,
+ * labeled in `labels` from `first`. Some apps (sample 19) cross out a clue with an X from corner
+ * to corner of its cell, in place of the clue. It touches the lane's sides, and joins the X's in
+ * the cells beside it. So a blob across the lane, and a whole number of cells long, is cut into
+ * cells, and each one whose ink runs along both its diagonals is an X.
+ */
+function crossedCells(
+  blob: Blob,
+  labels: Int32Array,
+  width: number,
+  strong: (p: number) => RGB | undefined,
+  first: number,
+  pitch: number
+): Blob[] {
+  const length = blob.a1 - blob.a0;
+  const n = Math.round(length / pitch);
+  if (n < 1 || Math.abs(length - n * pitch) > CELL_SLACK * pitch) return [];
+  if (blob.c0 > 0 || blob.c1 < width) return [];
+  const reach = Math.max(2, Math.round(X_REACH * pitch));
+  const crosses: Blob[] = [];
+  for (let k = 0; k < n; k++) {
+    const [a0, a1] = [
+      blob.a0 + Math.round((k * length) / n),
+      blob.a0 + Math.round(((k + 1) * length) / n),
+    ];
+    const near = (a: number, c: number) => {
+      for (let da = -reach; da <= reach; da++) {
+        for (let dc = -reach; dc <= reach; dc++) {
+          const [na, nc] = [Math.round(a) + da, Math.round(c) + dc];
+          if (na < a0 || na >= a1 || nc < 0 || nc >= width) continue;
+          if (labels[na * width + nc] === blob.label) return true;
+        }
+      }
+      return false;
+    };
+    let along = 0;
+    const steps = 16;
+    for (let s = 0; s <= steps; s++) {
+      const t = 0.1 + (0.8 * s) / steps;
+      const a = a0 + t * (a1 - a0 - 1);
+      if (near(a, t * (width - 1)) && near(a, (1 - t) * (width - 1))) along++;
+    }
+    if (along < X_COVERAGE * (steps + 1)) continue;
+    // And its ink is all one color. (Otherwise, it's likely drawn over a digit, as in sample 15,
+    // whose X's are red, and `byColor` can find the digit. Only the strong ink counts, since the
+    // anti-aliased edges of a black X are gray.)
+    const colors: RGB[] = [];
+    for (let a = a0; a < a1; a++) {
+      for (let c = 0; c < width; c++) {
+        if (labels[a * width + c] !== blob.label) continue;
+        const color = strong(a * width + c);
+        if (color) colors.push(color);
+      }
+    }
+    const centers = kMeans(colors, 2);
+    if (
+      centers.length > 1 &&
+      dist(centers[0]!, centers[1]!) >= INK_COLORS_APART
+    )
+      continue;
+    const cross: Blob = {
+      label: first + crosses.length,
+      a0: Infinity,
+      a1: -Infinity,
+      c0: Infinity,
+      c1: -Infinity,
+      pixels: 0,
+      touchesSide: true,
+    };
+    for (let a = a0; a < a1; a++) {
+      for (let c = 0; c < width; c++) {
+        if (labels[a * width + c] !== blob.label) continue;
+        labels[a * width + c] = cross.label;
+        cross.pixels++;
+        cross.a0 = Math.min(cross.a0, a);
+        cross.a1 = Math.max(cross.a1, a + 1);
+        cross.c0 = Math.min(cross.c0, c);
+        cross.c1 = Math.max(cross.c1, c + 1);
+      }
+    }
+    crosses.push(cross);
+  }
+  return crosses;
 }
 
 /** The values in `of` of `blob`'s pixels. */

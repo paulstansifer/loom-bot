@@ -4,8 +4,9 @@
  * otherwise, what went wrong.
  *
  * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read,
- * or seem to be crossed out (`strike.ts`), are worked out from it (`repair.ts`). If the progress contradicts the clues in many lanes, it
- * was probably misread, and the guidance is for someone who hasn't started.
+ * or seem to be crossed out (`explain.ts`), are worked out from it (`repair.ts`); clues that seem
+ * misnamed are named again. If the progress contradicts the clues in many lanes, it was probably
+ * misread, and the guidance is for someone who hasn't started.
  */
 
 import { findPuzzle } from '../ocr/bounds.ts';
@@ -23,7 +24,7 @@ import {
   type Reading,
 } from '../ocr/read.ts';
 import { repair } from '../ocr/repair.ts';
-import { explainStrikes } from '../ocr/strike.ts';
+import { explainGroups } from '../ocr/explain.ts';
 import { blankGrid } from '../solve/grid.ts';
 import { blackAndWhite } from '../solve/puzzle.ts';
 import { guidance, guidanceToMessage } from './guidance.ts';
@@ -70,8 +71,8 @@ export function replyTo(raster: Raster): Reply {
   const read = timed('clues', () => readClues(raster, grid));
   const progress = timed('cells', () => readCells(raster, grid));
   const explained = timed(
-    'strikes',
-    () => explainStrikes(read, progress.states, grid.cols).reading
+    'groups',
+    () => explainGroups(read, progress.states, grid.cols).reading
   );
   const fixed = repair(
     explained.columns,

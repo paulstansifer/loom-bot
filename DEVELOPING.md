@@ -173,12 +173,28 @@ it, between its two lines carried on upward, and a row's are to its left.
    they're where a line crosses a stroke. Those glyphs are flagged `struck`. (Only the
    blob's pixels that weren't already glyphs: otherwise, a digit on a box of its own, or with
    a drop shadow, is found twice.)
+
+   Before that, it may be X's in place of clues, from corner to corner of their cells (sample
+   19's app crosses out a clue that way, and the clue is gone). An X touches the lane's sides,
+   and joins the X's in the cells beside it. So a blob across the lane, and a whole number of
+   cells long, is cut into cells. A cell whose ink comes within 0.08 of a cell of 90% of the
+   points along both its diagonals is an X, and a glyph of its own, named "x" by its template:
+   `repair` works the clue out from the grid. Unless its strong ink (80% of the blob's contrast,
+   leaving out an X's gray anti-aliased edges) is in two colors: then it's an X drawn over a
+   digit, as in sample 15, whose X's are red, and the digit is found under it as above.
 4. Outward from the grid, glyphs are kept until there's a gap of more than a cell.
 5. Slivers and specks are dropped: anything narrower than 0.2 of the picture's median glyph
    height, or shorter than 0.6 of it. They're bits of lines and boxes, or of a digit's shadow.
    No typeface in the samples has a "1" narrower than 0.3 of its height, or a digit shorter
    than 0.87 of the median.
-6. Missing glyphs are looked for where the layout says they should be. The clues are aligned
+6. Strays are dropped, along with everything further out: a glyph past a gap more than twice
+   the picture's usual one between glyphs (in lanes going the same way), and off-center by more
+   than 0.15 of the lane's width (compared with the usual glyph, since some apps don't center
+   the clues). Sample 24 has "FILLS 103/144" above a column's clues, and sample 29 has a bit of
+   background left of a row's. Neither test alone is enough: in sample 12 (a clue to a cell),
+   real clues are as far apart, and in samples 3, 21 and 23, two-digit numbers in narrow columns
+   are as far off-center.
+7. Missing glyphs are looked for where the layout says they should be. The clues are aligned
    against the grid, so the clue nearest the grid is about as far from it in every lane; and a
    column's clues are evenly stacked. Where one of those places is empty, a blob there that was
    left out (too faint, or past a gap) is taken, if it's in the middle of the lane and about a
@@ -234,17 +250,18 @@ checks this against the `.clues` files. It reads each lane whole, and compares i
 Separately, a lane with as many glyphs as its clues have digits
 gives each glyph its digit. Then a group should hold only one digit, and its template should
 name that digit. `--out` draws the glyphs (`NAME-glyphs.png`: green in a lane with the right
-count, red otherwise) and the groups (`NAME-groups.png`). On the checked samples whose grid is
-found:
+count, red otherwise) and the groups (`NAME-groups.png`). It doesn't use the grid's state, so
+samples 12 and 19, whose crossed-out clues can only be worked out from the grid (see below),
+score badly. On the other checked samples whose grid is found:
 
-- 433 of 440 lanes are read exactly right, and 435 have the right number of glyphs. Every
-  sample but 3 is read entirely right.
-- No group mixes two digits, at a threshold of 0.12. At 0.14, one glyph is in the wrong group,
-  and at 0.2, 54 are. Below 0.12, digits split into more groups.
-- 1354 of the 1356 glyphs in those lanes are in a group named right. The two that aren't are
-  sample 3's shadowed digits. Elsewhere, the nearest template of another digit is at least
-  0.026 further away.
-- It takes 10–240 ms a picture.
+- 627 of 635 lanes are read exactly right, and 630 have the right number of glyphs. Every
+  sample but 3 and 24 is read entirely right.
+- No group mixes two digits, at a threshold of 0.12. At 0.14, 11 glyphs are in the wrong group,
+  and at 0.2, 94 are. Below 0.12, digits split into more groups.
+- 1802 of the 1805 glyphs in those lanes are in a group named right. The ones that aren't are
+  sample 3's two shadowed digits, and sample 24's one "8", named "0" by 0.001. Elsewhere, the
+  nearest template of another digit is at least 0.018 further away.
+- It takes 20–270 ms a picture.
 
 The row and column totals of a checked `.clues` file should agree. Two didn't (3 and 15), and
 in both, the picture showed the reading was right and the file was wrong.
@@ -258,16 +275,19 @@ samples, only 18 reads consistently. Where its reading differed from its file (w
 
 ### Known failures
 
-- Samples 12 and 19's clues (their grids are found right, but their `.clues` files are
-  unchecked). Sample 19's digits are tiny, and its "6"s read as "0"s. Its row and column totals
-  don't agree, which says so. Sample 12's pixel font's digits read badly by themselves (a "2"
-  as an "8"), and its crossed-out ones (with a flag on the upper left, in the digits' own color)
-  worse; but the bot reads it (see "Crossed out in the digits' color", below).
 - Sample 3's middle panel, and the spotlit corner of its row clues: gray digits with dark drop
   shadows on gradients, nearly the background's brightness. Five lanes are missing digits, and
   two have a digit named wrong.
 
-## Reading the grid's state (`src/ocr/cells.ts`, `repair.ts`, `strike.ts`)
+These are read by themselves badly, but the bot reads them right, with the grid's help (see
+"Second thoughts", below):
+
+- Sample 12's pixel font's digits (a "2" as an "8"), and worse, its crossed-out ones (with a
+  flag on the upper left, in the digits' own color).
+- Sample 19's tiny "6"s, named "0" (the "6" template is second), and its crossed-out clues.
+- Sample 24's one "8", named "0".
+
+## Reading the grid's state (`src/ocr/cells.ts`, `repair.ts`, `explain.ts`)
 
 `readCells(raster, grid)` says which cells are filled, crossed out or undecided, without the
 clues (which is good, since a well-solved puzzle's are crossed out). It's a port of number-loom's
@@ -316,22 +336,29 @@ header comment for the details, and its tests). Not ported: dimmed clues, and ba
 Struck-out digits in another color are read through the strike (`glyphs.ts`), so they don't
 need this.
 
-### Crossed out in the digits' color (`strike.ts`)
+### Second thoughts (`explain.ts`)
 
 Sample 12's app crosses out a clue with a flag on its upper left, in the digits' own color, so
 `glyphs.ts` can't tell. A crossed-out digit looks different from the plain one, so it's a
 group of its own, but its name is likely wrong (a struck "1" is named "4", a struck "2" or "3"
-"8"). Two-digit ones, joined by their flag, are named "x", and so are `NaN` already.
+"8"). Two-digit ones, joined by their flag, are named "x", and so are `NaN` already. And some
+groups are named wrong, but their second-nearest template is right: sample 19's tiny "6"s, and
+sample 24's "8", are named "0".
 
-`explainStrikes` takes a group as crossed out (`NaN`, for `repair` to work out from the grid)
-where that makes the clues make more sense. Greedily, one group at a time, it takes whichever
-lowers the most: the lanes that don't fit (or are still `NaN` after `repair`), plus the lanes
-the grid contradicts, plus 2 if the totals don't agree, plus 0.5 per group taken. (That last
-part is so a group isn't taken for no reason: against a finished grid, taking every group would
-agree perfectly.) On sample 12 that gives clues that are consistent, that the grid doesn't
-contradict, and that line logic solves; the lanes I checked against the picture were right.
-It changes nothing on the checked samples. Since 258 of sample 12's clues are copied from the
-grid, any mistakes the person made in those lanes are copied into them, unseen.
+`explainGroups` takes a group as crossed out (`NaN`, for `repair` to work out from the grid),
+or renames it to its second-nearest template, where that makes the clues make more sense.
+Greedily, one group at a time, it makes whichever change lowers the most: the lanes that don't
+fit (or are still `NaN` after `repair`), plus the lanes the grid contradicts, plus 2 if the
+totals don't agree, plus 0.5 per group taken as crossed out and 0.4 per group renamed. (That
+last part is so a group isn't changed for no reason: against a finished grid, taking every group
+as crossed out would agree perfectly. Renaming costs less, since a clue read is better than one
+worked out. Without that, sample 24's "4"s were taken as crossed out instead of its "0"
+renamed, which got the same clues, since its row with the "0" was fully decided.) On sample 12
+that gives clues that are consistent, that the grid doesn't contradict, and that line logic
+solves; the lanes I checked against the picture were right. It renames one group in each of
+samples 12, 19 and 24. Of the other checked samples, it only changes sample 3 (a known
+failure), where it takes its "9"s as crossed out. Since 258 of sample 12's clues are copied from the grid, any mistakes the person made in
+those lanes are copied into them, unseen.
 
 ## Solving (`src/solve/`)
 

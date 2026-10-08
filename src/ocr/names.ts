@@ -19,8 +19,9 @@ export type Naming = {
   name: string;
   /** How far it is from the nearest template. */
   d: number;
-  /** How much further the nearest template with another name is. */
+  /** How much further the nearest template with another name is, and that name. */
   margin: number;
+  next?: string;
 };
 
 let decoded: { name: string; look: Look }[] | undefined;
@@ -48,7 +49,12 @@ export function name(l: Look): Naming {
     if (d < (byName.get(t.name) ?? Infinity)) byName.set(t.name, d);
   }
   const [best, next] = [...byName].sort((p, q) => p[1] - q[1]);
-  return { name: best![0], d: best![1], margin: next![1] - best![1] };
+  return {
+    name: best![0],
+    d: best![1],
+    margin: next![1] - best![1],
+    next: next![0],
+  };
 }
 
 export function isDigit(n: Naming): boolean {
