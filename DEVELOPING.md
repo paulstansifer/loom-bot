@@ -438,8 +438,9 @@ reaching out past the grid to the left and top (up to 0.6 of the grid's size, or
 edge) for the clues. Then:
 
 - `flatten`: each channel is divided by the paper's color, a quadratic surface fitted to each
-  cell's brightest, leaving out cells well below the fit (fills, even where most of the grid is
-  red marker). So the paper is white, as in a screenshot. Without this, the row clues weren't
+  cell's brightest, starting from the brighter half of them, and then leaving out cells well
+  below the fit (fills, even where most of the grid is red marker). (Starting from all of them,
+  a fill over a third of the picture pulled the fit down to it, and it came out white.) So the paper is white, as in a screenshot. Without this, the row clues weren't
   split into numbers, and the filled cells weren't told from the empty ones.
 - `lineOffsets`: where each line is, beside each cell, within 0.2 of a cell of where it should
   be. Offsets far from those along the line around them are dropped (a digit's stroke), and a

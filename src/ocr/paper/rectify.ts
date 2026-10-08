@@ -504,7 +504,11 @@ export function flatten(raster: Raster, outside: Uint8Array): void {
   const evaluate = (coef: number[], x: number, y: number) =>
     terms(x, y).reduce((sum, t, k) => sum + t * coef[k]!, 0);
   const surfaces = [0, 1, 2].map((c) => {
-    let kept = blocks;
+    // To begin with, the brighter half (paper is rarely less than half the picture).
+    const middle = [...blocks.map((b) => b.rgb[c]!)].sort((p, q) => p - q)[
+      blocks.length >> 1
+    ]!;
+    let kept = blocks.filter((b) => b.rgb[c]! >= middle);
     let coef = fitSurface(kept.map((b) => [...terms(b.x, b.y), b.rgb[c]!]));
     for (let round = 0; round < 4; round++) {
       const next = blocks.filter(
