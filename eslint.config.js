@@ -27,6 +27,7 @@ export default defineConfig([
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      'src/ocr/vendor/**',
       '**/build/**',
       'eslint.config.js',
       '**/vite.config.ts',

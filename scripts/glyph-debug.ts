@@ -32,6 +32,7 @@ import { findPuzzle } from '../src/ocr/bounds.ts';
 import type { Grid } from '../src/ocr/grid.ts';
 import { name } from '../src/ocr/names.ts';
 import { numbers } from '../src/ocr/numbers.ts';
+import { cluesText, consistency, readClues } from '../src/ocr/read.ts';
 import type { Raster } from '../src/ocr/raster.ts';
 import {
   decode,
@@ -171,11 +172,11 @@ for (const s of list) {
     expected: number[][]
   ) => {
     found.forEach((lane, i) => {
-      const text = asText(lane.map((n) => Number(n.map(digitOf).join(''))));
-      if (text === asText(expected[i]!)) read++;
+      const text = cluesText(lane.map((n) => Number(n.map(digitOf).join(''))));
+      if (text === cluesText(expected[i]!)) read++;
       else
         misread.push(
-          `${kind} ${i}: expected ${asText(expected[i]!)}, read ${text}`
+          `${kind} ${i}: expected ${cluesText(expected[i]!)}, read ${text}`
         );
     });
   };
@@ -238,13 +239,6 @@ console.log(
     `named right: ${totals.named}/${totals.glyphs}`
 );
 
-/** No clues reads the same as a single 0. (A NaN is a number with a glyph named "x" in it.) */
-function asText(clues: number[]): string {
-  return clues.length === 0
-    ? '0'
-    : clues.map((n) => (Number.isNaN(n) ? '?' : String(n))).join(' ');
-}
-
 /** `looks` grouped, each group's members, and each group named by the nearest template to its
  * average look. */
 function nameGroups(looks: Look[]) {
@@ -265,36 +259,17 @@ function nameGroups(looks: Look[]) {
  * was.
  */
 async function unscored(s: Sample, raster: Raster, grid: Grid) {
-  const lanes = findGlyphs(raster, grid);
-  const glyphs = [...lanes.columns, ...lanes.rows].flat();
-  const looks = glyphs.map(look);
-  const { groups, members, names } = nameGroups(looks);
-  const index = new Map(glyphs.map((g, i) => [g, i]));
-  const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.name;
-  const laneNumbers = numbers(lanes);
-  const read = (found: Glyph[][][]) =>
-    found.map((lane) => lane.map((n) => Number(n.map(digitOf).join(''))));
-  const columns = read(laneNumbers.columns);
-  const rows = read(laneNumbers.rows);
-
-  const total = (lanes: number[][]) =>
-    lanes.flat().reduce((sum, n) => sum + (Number.isNaN(n) ? 0 : n), 0);
-  const [colTotal, rowTotal] = [total(columns), total(rows)];
-  // A lane's clues, with a cell between each, must fit in it. (A NaN is a glyph named "x".)
-  const misfits = (lanes: number[][], length: number) =>
-    lanes.filter(
-      (l) =>
-        l.some(Number.isNaN) ||
-        l.reduce((sum, n) => sum + n, 0) + l.length - 1 > length
-    ).length;
-  const bad = misfits(columns, grid.rows) + misfits(rows, grid.cols);
-  const empty = [...columns, ...rows].filter((l) => l.length === 0).length;
-  const margin = Math.min(...names.map((n) => n.margin));
-  // (Some lanes can be empty, but not most.)
-  const consistent =
-    colTotal === rowTotal &&
-    bad === 0 &&
-    empty <= 0.2 * (columns.length + rows.length);
+  const reading = readClues(raster, grid, threshold);
+  const { glyphs, groups, members, names, columns, rows } = reading;
+  const digitOf = (i: number) => names[groups[i]!]!.name;
+  const {
+    columnTotal: colTotal,
+    rowTotal,
+    misfits: bad,
+    empty,
+    margin,
+    consistent,
+  } = consistency(reading);
   const file = s.clues
     ? s.clues.rows === grid.rows && s.clues.cols === grid.cols
       ? ''
@@ -317,21 +292,21 @@ async function unscored(s: Sample, raster: Raster, grid: Grid) {
   );
   if (verbose) {
     console.log('     columns');
-    for (const l of columns) console.log(`     ${asText(l)}`);
+    for (const l of columns) console.log(`     ${cluesText(l)}`);
     console.log('     rows');
-    for (const l of rows) console.log(`     ${asText(l)}`);
+    for (const l of rows) console.log(`     ${cluesText(l)}`);
   }
   if (out) {
     writeFileSync(
       join(out, `${s.name}.clues`),
       `# UNCHECKED: read by glyph-debug.ts from ${basename(s.path)}; ` +
         `columns total ${colTotal}, rows ${rowTotal}.\n` +
-        `columns\n${columns.map(asText).join('\n')}\n` +
-        `rows\n${rows.map(asText).join('\n')}\n`
+        `columns\n${columns.map(cluesText).join('\n')}\n` +
+        `rows\n${rows.map(cluesText).join('\n')}\n`
     );
     await drawGlyphs(
       raster,
-      glyphs.map((glyph) => ({ glyph, digit: digitOf(glyph) })),
+      glyphs.map((glyph, i) => ({ glyph, digit: digitOf(i) })),
       join(out, `${s.name}-glyphs.png`)
     );
     await drawGroups(

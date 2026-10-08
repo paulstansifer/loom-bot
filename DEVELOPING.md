@@ -1,8 +1,8 @@
 # Developing `number-loom-bot`
 
 A Reddit (Devvit) bot that reads a nonogram from a screenshot and replies about it. It started
-from Devvit's mod-tool template (the "Mop" commands in `src/core`, `src/routes` are the
-template's). It has to run in Node.js and answer in under 30 seconds, which rules out the
+from Devvit's mod-tool template, whose moderation commands have since been removed. It has to run
+in Node.js and answer in under 30 seconds, which rules out the
 `ocr-clues` pipeline in `~/src/number-loom/src/ocr-clue-bot/` (see its `DEVELOPING.md`). Devvit
 doesn't allow WebAssembly either, so tesseract.js, `ocrs` and onnxruntime are out. So
 the plan is to find the grid first, from its pixel-perfect lines, and let that guide reading the
@@ -321,3 +321,43 @@ for all the checked samples (with progress) read back right in the Rust app.
 It uses `node:zlib` for Brotli. That works in Node, but whether Devvit allows it hasn't been
 checked yet. If it doesn't, Brotli can store data uncompressed, which is easy to write, but makes
 for longer links.
+
+## The bot (`src/bot/`, `src/routes/triggers.ts`)
+
+When a post is made (Devvit's `onPostCreate` trigger), `handlePost` (`post.ts`) finds its first
+picture: in a gallery, the picture it links to, or the first one in its text (`picture.ts`, as
+the Rust bot's `first_picture` does). A crosspost's is the original's. Only pictures on
+`i.redd.it` and `preview.redd.it` are downloaded, since Devvit only lets an app fetch from the
+domains in `devvit.json`. A post without one gets no reply.
+
+`replyTo` (`reply.ts`) finds the grid, reads the clues, and checks them (`src/ocr/read.ts`,
+which `glyph-debug.ts` uses too). If they make sense, it replies with guidance (`guidance.ts`, a
+port of the Rust bot's `guidance.rs`, whose message wording is human-written: don't change it).
+That includes a link that opens the puzzle in the web app. For now, while the bot is being
+tested, every reply also has debugging information: what was read, and how long it took. And
+when the clues don't make sense, or no grid is found, it replies with that instead. The person's
+progress in the grid isn't read yet, so the guidance is for someone who hasn't started.
+
+```
+node --experimental-strip-types scripts/reply-debug.ts PICTURE_OR_URL... [--status]
+```
+
+prints the reply a picture (a file, or a post's picture's URL) would get.
+
+Pictures are decoded in pure JavaScript (`src/ocr/decode.ts`), since `sharp` is native: PNG with
+`pngjs`, and JPEG with a copy of `jpeg-js`' decoder (`src/ocr/vendor/`). r/nonograms' pictures
+are PNG and JPEG. (Preview pictures are WebP only for a browser that asks for it.) `jpeg-js` as it
+comes repeats a subsampled color component, where libjpeg (and so `sharp`) interpolates it. On
+colored edges, that made pixels differ by up to 116, which was enough to make a real post
+unreadable. So the copy interpolates, and converts colors, as libjpeg does. Now every pixel is
+within 3 of `sharp`'s. On the 12 pictures of real posts the Rust bot downloaded
+(`~/src/number-loom/bot/*/picture.*`), the replies are the same as from `sharp`'s decoding,
+except for which of two failures a few unreadable photos get. The same 5 read as for the Rust
+bot. A reply takes 0.1 to 0.6 s for a screenshot, and up to 2.5 s for a big photo.
+
+Not yet known, since it needs a playtest on Devvit:
+
+- Whether the post `onPostCreate` hands over is far enough along for its pictures to be ready,
+  and whether `Post.gallery`'s URLs are the ones expected.
+- Whether `fetch` from `i.redd.it` and `preview.redd.it` is allowed (the domains are in
+  `devvit.json`, but may need Reddit's approval), and whether `node:zlib` is (see "Share links").

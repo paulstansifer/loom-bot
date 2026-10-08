@@ -2,3 +2,5 @@
 src/ocr/templates.ts
 # Copied from number-loom's examples/woven: they must stay byte-for-byte as it wrote them.
 src/formats/woven-fixtures/
+# Vendored, and kept as it came (but for the changes noted at its top).
+src/ocr/vendor/
