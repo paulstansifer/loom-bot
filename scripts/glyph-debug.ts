@@ -3,21 +3,33 @@
  * they look, and checks that against the clues: a lane with as many glyphs as its clues have
  * digits gives each glyph its digit, and then a group should have only one digit in it.
  *
+ * A picture whose clues haven't been checked (or that has none) is read without a score: it says
+ * whether the clues read are consistent (the rows' and columns' totals agree, and each lane's
+ * clues fit in it), which says whether the reading is worth checking by hand.
+ *
  * With `--out DIR`, draws, for each picture, the glyphs found (`NAME-glyphs.png`: green in a lane
  * with the right number of them, red otherwise), and each group in a row (`NAME-groups.png`,
- * labeled with the digits its glyphs should be).
+ * labeled with the digits its glyphs should be). For a picture without checked clues, it also
+ * writes what it read, as `NAME.clues`, to start checking from.
  *
  *   node --experimental-strip-types scripts/glyph-debug.ts [DIR | PICTURE...] [--out DIR]
  *     [--threshold T] [--verbose]
  */
 
-import { mkdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import sharp from 'sharp';
 
-import { cluster, distance, look, meanLook } from '../src/ocr/cluster.ts';
+import {
+  cluster,
+  distance,
+  look,
+  type Look,
+  meanLook,
+} from '../src/ocr/cluster.ts';
 import { findGlyphs, type Glyph } from '../src/ocr/glyphs.ts';
 import { findPuzzle } from '../src/ocr/bounds.ts';
+import type { Grid } from '../src/ocr/grid.ts';
 import { name } from '../src/ocr/names.ts';
 import { numbers } from '../src/ocr/numbers.ts';
 import type { Raster } from '../src/ocr/raster.ts';
@@ -57,9 +69,13 @@ const totals = {
 };
 for (const s of list) {
   const clues = s.clues;
-  if (!clues?.checked) continue;
   const raster = await decode(s.path);
   const result = findPuzzle(raster);
+  if (!clues?.checked) {
+    if (!result.ok) console.log(`${s.name.padEnd(4)} unchecked  no grid`);
+    else await unscored(s, raster, result.grid);
+    continue;
+  }
   if (
     !result.ok ||
     result.grid.rows !== clues.rows ||
@@ -112,10 +128,8 @@ for (const s of list) {
     worstOther = Math.min(worstOther, other);
   });
 
-  const groups = cluster(looks, threshold);
-  const groupCount = Math.max(-1, ...groups) + 1;
-  const members: number[][] = Array.from({ length: groupCount }, () => []);
-  groups.forEach((k, i) => members[k]!.push(i));
+  const { groups, members, names } = nameGroups(looks);
+  const groupCount = members.length;
   // A glyph is wrong if its group's commonest digit isn't its own.
   let wrong = 0;
   let labeled = 0;
@@ -131,9 +145,7 @@ for (const s of list) {
     return sorted;
   });
   const singletons = members.filter((m) => m.length === 1).length;
-  // Each group named by the nearest template to its average look; how many glyphs that names
-  // right.
-  const names = members.map((m) => name(meanLook(m.map((i) => looks[i]!))));
+  // How many glyphs the groups' names name right.
   let named = 0;
   let worstMargin = Infinity;
   names.forEach((n, k) => {
@@ -150,8 +162,6 @@ for (const s of list) {
   // clues reads the same as a single 0.)
   const index = new Map(glyphs.map((g, i) => [g.glyph, i]));
   const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.name;
-  const asText = (clues: number[]) =>
-    clues.length === 0 ? '0' : clues.join(' ');
   const laneNumbers = numbers(lanes);
   let read = 0;
   const misread: string[] = [];
@@ -227,6 +237,111 @@ console.log(
     `glyphs in a group of another digit: ${totals.wrong}/${totals.glyphs}; ` +
     `named right: ${totals.named}/${totals.glyphs}`
 );
+
+/** No clues reads the same as a single 0. (A NaN is a number with a glyph named "x" in it.) */
+function asText(clues: number[]): string {
+  return clues.length === 0
+    ? '0'
+    : clues.map((n) => (Number.isNaN(n) ? '?' : String(n))).join(' ');
+}
+
+/** `looks` grouped, each group's members, and each group named by the nearest template to its
+ * average look. */
+function nameGroups(looks: Look[]) {
+  const groups = cluster(looks, threshold);
+  const members: number[][] = Array.from(
+    { length: Math.max(-1, ...groups) + 1 },
+    () => []
+  );
+  groups.forEach((k, i) => members[k]!.push(i));
+  const names = members.map((m) => name(meanLook(m.map((i) => looks[i]!))));
+  return { groups, members, names };
+}
+
+/**
+ * Reads the clues of a picture whose clues haven't been checked, and says whether they're
+ * consistent: whether the rows' and columns' totals agree, and how many lanes' clues don't fit
+ * in them, or are empty (which is allowed, but not for most of them), and how sure the naming
+ * was.
+ */
+async function unscored(s: Sample, raster: Raster, grid: Grid) {
+  const lanes = findGlyphs(raster, grid);
+  const glyphs = [...lanes.columns, ...lanes.rows].flat();
+  const looks = glyphs.map(look);
+  const { groups, members, names } = nameGroups(looks);
+  const index = new Map(glyphs.map((g, i) => [g, i]));
+  const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.name;
+  const laneNumbers = numbers(lanes);
+  const read = (found: Glyph[][][]) =>
+    found.map((lane) => lane.map((n) => Number(n.map(digitOf).join(''))));
+  const columns = read(laneNumbers.columns);
+  const rows = read(laneNumbers.rows);
+
+  const total = (lanes: number[][]) =>
+    lanes.flat().reduce((sum, n) => sum + (Number.isNaN(n) ? 0 : n), 0);
+  const [colTotal, rowTotal] = [total(columns), total(rows)];
+  // A lane's clues, with a cell between each, must fit in it. (A NaN is a glyph named "x".)
+  const misfits = (lanes: number[][], length: number) =>
+    lanes.filter(
+      (l) =>
+        l.some(Number.isNaN) ||
+        l.reduce((sum, n) => sum + n, 0) + l.length - 1 > length
+    ).length;
+  const bad = misfits(columns, grid.rows) + misfits(rows, grid.cols);
+  const empty = [...columns, ...rows].filter((l) => l.length === 0).length;
+  const margin = Math.min(...names.map((n) => n.margin));
+  // (Some lanes can be empty, but not most.)
+  const consistent =
+    colTotal === rowTotal &&
+    bad === 0 &&
+    empty <= 0.2 * (columns.length + rows.length);
+  const file = s.clues
+    ? s.clues.rows === grid.rows && s.clues.cols === grid.cols
+      ? ''
+      : ` (its file says ${s.clues.rows}x${s.clues.cols})`
+    : ' (no file)';
+  console.log(
+    [
+      s.name.padEnd(4),
+      'unchecked ',
+      `grid ${grid.rows}x${grid.cols}`.padEnd(11),
+      `totals ${colTotal}/${rowTotal}`.padEnd(17),
+      `misfits ${bad}`.padEnd(11),
+      `empty ${empty}`.padEnd(9),
+      `groups ${members.length}`.padEnd(10),
+      `margin>=${margin.toFixed(3)}`.padEnd(15),
+      (consistent ? 'consistent: worth checking' : 'inconsistent') +
+        (grid.pixelPerfect ? '' : ', not straight (a photo?)') +
+        file,
+    ].join(' ')
+  );
+  if (verbose) {
+    console.log('     columns');
+    for (const l of columns) console.log(`     ${asText(l)}`);
+    console.log('     rows');
+    for (const l of rows) console.log(`     ${asText(l)}`);
+  }
+  if (out) {
+    writeFileSync(
+      join(out, `${s.name}.clues`),
+      `# UNCHECKED: read by glyph-debug.ts from ${basename(s.path)}; ` +
+        `columns total ${colTotal}, rows ${rowTotal}.\n` +
+        `columns\n${columns.map(asText).join('\n')}\n` +
+        `rows\n${rows.map(asText).join('\n')}\n`
+    );
+    await drawGlyphs(
+      raster,
+      glyphs.map((glyph) => ({ glyph, digit: digitOf(glyph) })),
+      join(out, `${s.name}-glyphs.png`)
+    );
+    await drawGroups(
+      raster,
+      members.map((m) => m.map((i) => glyphs[i]!)),
+      names.map((n) => `~${n.name}`),
+      join(out, `${s.name}-groups.png`)
+    );
+  }
+}
 
 async function drawGlyphs(
   raster: Raster,

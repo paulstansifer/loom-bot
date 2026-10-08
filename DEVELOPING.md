@@ -245,6 +245,13 @@ found:
 The row and column totals of a checked `.clues` file should agree. Two didn't (3 and 15), and
 in both, the picture showed the reading was right and the file was wrong.
 
+A picture whose `.clues` file is unchecked is read without a score. Instead, it says whether
+what it read is consistent: the rows' and columns' totals agree, every lane's clues fit in it,
+and no more than a fifth of the lanes are empty. That says which files are worth checking by
+hand. With `--out`, it writes what it read to `NAME.clues` there, to start from. Of the unchecked
+samples, only 18 reads consistently. Where its reading differed from its file (written by
+`ocr-clues`, whose totals don't agree), the picture agreed with the reading.
+
 ### Known failures
 
 - Samples 12 and 19's clues (their grids are found right, but their `.clues` files are
