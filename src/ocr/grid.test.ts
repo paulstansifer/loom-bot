@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { findGrid, type Line } from './grid.ts';
 import type { Raster } from './raster.ts';
-import { decode, samples } from './samples.ts';
+import { decode, parseClues, samples } from './samples.ts';
 
 type Rgb = [number, number, number];
 
@@ -166,6 +166,61 @@ void describe('findGrid on drawn grids', () => {
     assertLines(result.grid.vertical, v);
   });
 
+  // No lines, just tiles, with gaps between them that cross each tile's edges (and, with
+  // rounded corners, more so).
+  for (const [pitch, radius] of [
+    [30, 4],
+    [40, 0],
+    [60, 6],
+  ] as const) {
+    void test(`tiles ${pitch} px apart, with corners of radius ${radius}`, () => {
+      const rows = 15;
+      const [x0, y0, gap] = [200, 250, 4];
+      const size = 300 + rows * pitch;
+      const { raster, rect } = canvas(size, size, [40, 40, 40]);
+      const tile = pitch - gap;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < rows; c++) {
+          const [x, y] = [x0 + c * pitch + gap / 2, y0 + r * pitch + gap / 2];
+          // A rounded square, as a cross of two rectangles with circles in its corners.
+          rect(x + radius, y, x + tile - radius, y + tile, [90, 90, 90]);
+          rect(x, y + radius, x + tile, y + tile - radius, [90, 90, 90]);
+          for (const [cx, cy] of [
+            [x + radius, y + radius],
+            [x + tile - radius - 1, y + radius],
+            [x + radius, y + tile - radius - 1],
+            [x + tile - radius - 1, y + tile - radius - 1],
+          ] as const) {
+            for (let dy = -radius; dy <= radius; dy++) {
+              const dx = Math.floor(Math.sqrt(radius * radius - dy * dy));
+              rect(cx - dx, cy + dy, cx + dx + 1, cy + dy + 1, [90, 90, 90]);
+            }
+          }
+        }
+      }
+      const result = findGrid(raster);
+      assert.ok(result.ok, result.ok ? '' : result.reason);
+      assert.equal(result.grid.rows, rows);
+      assert.equal(result.grid.cols, rows);
+      assert.ok(Math.abs(result.grid.pitch.h - pitch) < 0.5);
+    });
+  }
+
+  void test('too small', () => {
+    for (const [width, height] of [
+      [100, 0],
+      [0, 100],
+      [1, 1],
+    ] as const) {
+      const result = findGrid({
+        width,
+        height,
+        data: new Uint8Array(width * height * 3),
+      });
+      assert.equal(result.ok, false);
+    }
+  });
+
   void test('no grid', () => {
     const { raster, rect } = canvas(400, 400, [255, 255, 255]);
     rect(50, 50, 350, 60, [0, 0, 0]);
@@ -181,7 +236,9 @@ const KNOWN_FAILURES: Record<string, string> = {
 };
 
 void describe('findGrid on sample pictures', () => {
-  for (const sample of samples().filter((s) => s.checked)) {
+  for (const sample of samples()) {
+    const clues = sample.clues;
+    if (!clues?.checked) continue;
     void test(
       sample.name,
       { todo: KNOWN_FAILURES[sample.name] ?? false },
@@ -190,9 +247,25 @@ void describe('findGrid on sample pictures', () => {
         assert.ok(result.ok, result.ok ? '' : result.reason);
         assert.deepEqual(
           { rows: result.grid.rows, cols: result.grid.cols },
-          { rows: sample.rows, cols: sample.cols }
+          { rows: clues.rows, cols: clues.cols }
         );
       }
     );
   }
+});
+
+void test('parseClues', () => {
+  assert.deepEqual(
+    parseClues('# A note\r\ncolumns\r\n1 2\r\n3\r\nrows \r\n4\r\n\r\n'),
+    {
+      rows: 1,
+      cols: 2,
+      checked: true,
+    }
+  );
+  assert.equal(
+    parseClues('# UNCHECKED: a photo\ncolumns\n1\nrows\n1\n').checked,
+    false
+  );
+  assert.throws(() => parseClues('1 2\n3\n'));
 });

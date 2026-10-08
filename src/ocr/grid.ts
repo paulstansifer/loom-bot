@@ -25,8 +25,12 @@ import { type Raster, transpose } from './raster.ts';
 
 /** How different (in any of R, G, B) two pixels must be to make an edge. */
 const EDGE_THRESHOLD = 10;
-/** Gaps in a run of edge that are bridged (WebP and JPEG make edges ragged). */
-const RUN_GAP = 2;
+/** Gaps in a run of edge that are bridged. (WebP and JPEG make edges ragged, and where cells
+ * are drawn as tiles, the gaps between them cross each tile's edge, often with rounded corners
+ * either side.) */
+const RUN_GAP = 20;
+/** How much of a run must actually be edge. */
+const RUN_DENSITY = 0.5;
 /** The shortest run of edge that might be part of a grid line. (Digits are shorter.) */
 const MIN_RUN = 50;
 /** The smallest cell size, in pixels, worth trying. */
@@ -48,7 +52,8 @@ export type Edges = {
   count: number;
   /** Whether there's an edge at each point: `mask[b * along + x]`. */
   mask: Uint8Array;
-  /** The runs of edge along each boundary, as `[start, end)` pairs. */
+  /** The runs of edge along each boundary, as `[start, end, covered]` triples: from `start` to
+   * (not including) `end`, with an edge at `covered` of those points. */
   runs: number[][];
 };
 
@@ -97,14 +102,17 @@ export function edges(raster: Raster): Edges {
     const row: number[] = [];
     let start = -1;
     let last = -1;
+    let covered = 0;
     for (let x = 0; x <= width; x++) {
       const on = x < width && mask[b * width + x] === 1;
       if (on) {
         if (start < 0) start = x;
         last = x;
+        covered++;
       } else if (start >= 0 && (x === width || x - last > RUN_GAP)) {
-        row.push(start, last + 1);
+        row.push(start, last + 1, covered);
         start = -1;
+        covered = 0;
       }
     }
     runs.push(row);
@@ -112,8 +120,8 @@ export function edges(raster: Raster): Edges {
   return { along: width, count, mask, runs };
 }
 
-/** How much edge there is at each boundary, counting only runs at least `minRun` long, and
- * only within `[from, to)` along it. */
+/** How much edge there is at each boundary, counting only runs at least `minRun` long (and
+ * mostly edge), and only within `[from, to)` along it. */
 export function profile(
   e: Edges,
   from = 0,
@@ -124,13 +132,41 @@ export function profile(
   for (let b = 0; b < e.count; b++) {
     const row = e.runs[b]!;
     let total = 0;
-    for (let i = 0; i < row.length; i += 2) {
-      if (row[i + 1]! - row[i]! < minRun) continue;
-      total += Math.max(0, Math.min(row[i + 1]!, to) - Math.max(row[i]!, from));
+    for (let i = 0; i < row.length; i += 3) {
+      const [start, end, covered] = [row[i]!, row[i + 1]!, row[i + 2]!];
+      const density = covered / (end - start);
+      if (end - start < minRun || density < RUN_DENSITY) continue;
+      total += density * Math.max(0, Math.min(end, to) - Math.max(start, from));
     }
     p[b] = total;
   }
   return p;
+}
+
+/** A least-squares fit of `x = intercept + slope * k`, to points added one at a time. (The
+ * slope needs points at two different `k`s, at least.) */
+function linearFit() {
+  let [sk, skk, sx, skx, count] = [0, 0, 0, 0, 0];
+  return {
+    add(k: number, x: number) {
+      [sk, skk, sx, skx, count] = [
+        sk + k,
+        skk + k * k,
+        sx + x,
+        skx + k * x,
+        count + 1,
+      ];
+    },
+    get count() {
+      return count;
+    },
+    get slope() {
+      return (count * skx - sk * sx) / (count * skk - sk * sk);
+    },
+    get intercept() {
+      return (sx - this.slope * sk) / count;
+    },
+  };
 }
 
 /** Evenly spaced positions: `phase + k * pitch`, for `k` from `first` to `last`. */
@@ -194,20 +230,17 @@ export function lattices(p: Float64Array, max = 3): Lattice[] {
       if (d > maxPitch) break;
       if (d < MIN_PITCH || seen.has(i * n + j)) continue;
       const tol = Math.max(2, 0.07 * d);
-      // Fit `pos = a + b * k` as lines are found.
-      let [sk, skk, sc, skc, count] = [1, 1, pos[i]! + pos[j]!, pos[j]!, 2];
-      const fit = () => {
-        const b = (count * skc - sk * sc) / (count * skk - sk * sk);
-        return { a: (sc - b * sk) / count, b };
-      };
+      // Fit the lattice as lines are found.
+      const fit = linearFit();
+      fit.add(0, pos[i]!);
+      fit.add(1, pos[j]!);
       let score = weight[i]! + weight[j]!;
       let [lo, hi] = [0, 1];
       for (const dir of [1, -1]) {
         let prev = dir === 1 ? j : i;
         let misses = 0;
         for (let k = dir === 1 ? 2 : -1; ; k += dir) {
-          const { a, b } = fit();
-          const x = a + b * k;
+          const x = fit.intercept + fit.slope * k;
           if (x < 0 || x > p.length + 1) break;
           const hit = nearest(x, tol);
           if (hit < 0 || hit === prev) {
@@ -218,23 +251,16 @@ export function lattices(p: Float64Array, max = 3): Lattice[] {
           if (dir === 1) seen.add(prev * n + hit);
           else seen.add(hit * n + prev);
           prev = hit;
-          [sk, skk, sc, skc, count] = [
-            sk + k,
-            skk + k * k,
-            sc + pos[hit]!,
-            skc + k * pos[hit]!,
-            count + 1,
-          ];
+          fit.add(k, pos[hit]!);
           score += weight[hit]!;
           if (dir === 1) hi = k;
           else lo = k;
         }
       }
-      const { a, b } = fit();
-      const gaps = hi - lo + 1 - count;
+      const gaps = hi - lo + 1 - fit.count;
       found.push({
-        pitch: b,
-        phase: a,
+        pitch: fit.slope,
+        phase: fit.intercept,
         first: lo,
         last: hi,
         score: score - 0.5 * meanWeight * gaps,
@@ -311,23 +337,17 @@ function measureAt(p: Float64Array, x: number, pitch: number): Line {
   };
 }
 
-/** Refit the lattice to the lines' centers, so that it's centered on them. */
+/** Refit the lattice to the lines' centers, so that it's centered on them. (Leaving out the
+ * outermost lines found, which might be the border, drawn inside the grid, off the lattice.) */
 function recenter(lattice: Lattice, lines: Line[], from: number): Lattice {
-  let [sk, skk, sc, skc, count] = [0, 0, 0, 0, 0];
-  lines.forEach((line, i) => {
-    if (!line.found) return;
-    const k = from + i;
-    [sk, skk, sc, skc, count] = [
-      sk + k,
-      skk + k * k,
-      sc + line.center,
-      skc + k * line.center,
-      count + 1,
-    ];
-  });
-  if (count < 2) return lattice;
-  const pitch = (count * skc - sk * sc) / (count * skk - sk * sk);
-  return { ...lattice, pitch, phase: (sc - pitch * sk) / count };
+  const found = lines.flatMap((line, i) =>
+    line.found ? [[from + i, line.center] as const] : []
+  );
+  const fit = linearFit();
+  for (const [k, x] of found.length >= 4 ? found.slice(1, -1) : found)
+    fit.add(k, x);
+  if (fit.count < 2) return lattice;
+  return { ...lattice, pitch: fit.slope, phase: fit.intercept };
 }
 
 /** The fraction of `[from, to)` along `line` that has an edge on it (or within `margin` of it). */
@@ -404,21 +424,31 @@ export function rectangle(
       .slice(0, -1)
       .map((_, k) => coverage(ev, line, ...between(h[k]!, h[k + 1]!)))
   );
-  // Prefix sums: how many segments are fully covered, and the total coverage.
-  const prefix = (rows: number[][], f: (c: number) => number) =>
-    rows.map((row) => {
+  // Sums over rectangles of `rows`, as `sum(r0, r1, c0, c1)`: over `[r0, r1)` and `[c0, c1)`.
+  const sums = (rows: number[][], f: (c: number) => number) => {
+    const width = (rows[0]?.length ?? 0) + 1;
+    const pre: number[][] = [new Array<number>(width).fill(0)];
+    rows.forEach((row, r) => {
       const out = [0];
-      for (const c of row) out.push(out[out.length - 1]! + f(c));
-      return out;
+      row.forEach((c, i) =>
+        out.push(out[i]! + pre[r]![i + 1]! - pre[r]![i]! + f(c))
+      );
+      pre.push(out);
     });
-  const fullH = prefix(covH, (c) => (c >= FULL ? 1 : 0));
-  const fullV = prefix(covV, (c) => (c >= FULL ? 1 : 0));
-  const sumH = prefix(covH, (c) => c);
-  const sumV = prefix(covV, (c) => c);
-  const full = (pre: number[][], line: number, from: number, to: number) =>
-    pre[line]![to]! - pre[line]![from]! === to - from;
-  const sum = (pre: number[][], line: number, from: number, to: number) =>
-    pre[line]![to]! - pre[line]![from]!;
+    return (r0: number, r1: number, c0: number, c1: number) =>
+      pre[r1]![c1]! - pre[r0]![c1]! - pre[r1]![c0]! + pre[r0]![c0]!;
+  };
+  const fullH = sums(covH, (c) => (c >= FULL ? 1 : 0));
+  const fullV = sums(covV, (c) => (c >= FULL ? 1 : 0));
+  const sumH = sums(covH, (c) => c);
+  const sumV = sums(covV, (c) => c);
+  // Whether a line has an edge all the way across the cells `[from, to)`.
+  const full = (
+    f: (r0: number, r1: number, c0: number, c1: number) => number,
+    line: number,
+    from: number,
+    to: number
+  ) => f(line, line + 1, from, to) === to - from;
   // How much `line` carries on across the cell `at`. (Allowing it to wander a little: clue boxes
   // can be rounded, and only roughly lined up with the grid's lines.)
   const reach = (horizontal: boolean, line: number, at: number) => {
@@ -432,59 +462,47 @@ export function rectangle(
       margin
     );
   };
-  // Whether most of the lines from `first` to `last` carry on across `at` (they shouldn't, past
-  // the grid's right or bottom edge: that's more lattice than grid).
-  const carriesOn = (
-    cov: number[][],
-    first: number,
-    last: number,
-    at: number
-  ) => {
-    let count = 0;
-    for (let i = first; i <= last; i++)
-      if ((cov[i]?.[at] ?? 0) >= FULL) count++;
-    return count > (last - first + 1) / 2;
-  };
 
+  // (Each line must have an edge all the way along its side of the rectangle, so as soon as one
+  // doesn't, a longer side won't either.)
   let best: Rectangle | undefined;
   let bestArea = 0;
   for (let top = 0; top < m; top++) {
     // There must be room for the column clues above.
     if (h[top]!.center < 0.8 * pitch) continue;
-    for (
-      let bottom = top + MIN_CELLS;
-      bottom < m && bottom - top <= MAX_CELLS;
-      bottom++
-    ) {
-      for (let left = 0; left < n; left++) {
-        if (v[left]!.center < 0.8 * pitch) continue;
+    for (let left = 0; left < n; left++) {
+      if (v[left]!.center < 0.8 * pitch) continue;
+      for (
+        let bottom = top + MIN_CELLS;
+        bottom < m && bottom - top <= MAX_CELLS;
+        bottom++
+      ) {
+        if (!full(fullV, left, top, bottom)) break;
         for (
           let right = left + MIN_CELLS;
           right < n && right - left <= MAX_CELLS;
           right++
         ) {
-          const area = (bottom - top) * (right - left);
-          if (area <= bestArea) continue;
           if (
             !full(fullH, top, left, right) ||
-            !full(fullH, bottom, left, right) ||
-            !full(fullV, left, top, bottom) ||
-            !full(fullV, right, top, bottom)
+            !full(fullH, bottom, left, right)
           ) {
-            continue;
+            break;
           }
-          let inside = 0;
-          for (let k = top + 1; k < bottom; k++)
-            inside += sum(sumH, k, left, right);
-          for (let j = left + 1; j < right; j++)
-            inside += sum(sumV, j, top, bottom);
+          const area = (bottom - top) * (right - left);
+          if (area <= bestArea || !full(fullV, right, top, bottom)) continue;
+          const inside =
+            sumH(top + 1, bottom, left, right) +
+            sumV(left + 1, right, top, bottom);
           const segments =
             (bottom - top - 1) * (right - left) +
             (right - left - 1) * (bottom - top);
           if (inside < 0.5 * segments) continue;
+          // Most of the lines shouldn't carry on past the grid's right or bottom edge: that's
+          // more lattice than grid.
           if (
-            carriesOn(covH, top, bottom, right) ||
-            carriesOn(covV, left, right, bottom)
+            fullH(top, bottom + 1, right, right + 1) > (bottom - top + 1) / 2 ||
+            fullV(left, right + 1, bottom, bottom + 1) > (right - left + 1) / 2
           ) {
             continue;
           }
@@ -534,9 +552,10 @@ export type Grid = {
   /** The horizontal lines, top to bottom (`rows + 1` of them), and the vertical ones. */
   horizontal: Line[];
   vertical: Line[];
-  /** The size of a cell, across and down. */
+  /** The spacing of the horizontal lines (so, a cell's height) and of the vertical ones (its
+   * width). */
   pitch: { h: number; v: number };
-  /** How straight the lines are, across and down (see `straightness`), and whether that's
+  /** How straight the horizontal and vertical lines are (see `straightness`), and whether that's
    * straight enough for a screenshot. (A photo of a screen can be nearly straight, and still
    * work.) */
   straightness: { h: number; v: number };
@@ -546,8 +565,8 @@ export type Grid = {
 export type Debug = {
   /** The lattices tried, horizontal and vertical. */
   lattices: { h: Lattice[]; v: Lattice[] };
-  /** All the lines of the lattices chosen, and the rectangles found among them (before and after
-   * leaving out clue boxes). */
+  /** All the lines of the lattices chosen (or, if no grid was found, the likeliest ones), and the
+   * rectangles found among them (before and after leaving out clue boxes). */
   allLines?: { h: Line[]; v: Line[] };
   rectangle?: { full: Rectangle; grid: Rectangle };
 };
@@ -598,21 +617,11 @@ export function straightness(
 /** The spacing of `lines`, fitted to the centers of all but the first and last (which, if
  * they're the border, are drawn inside the grid, off the lattice). */
 function spacing(lines: Line[], fallback: number): number {
-  let [sk, skk, sc, skc, count] = [0, 0, 0, 0, 0];
+  const fit = linearFit();
   for (let k = 1; k < lines.length - 1; k++) {
-    const line = lines[k]!;
-    if (!line.found) continue;
-    [sk, skk, sc, skc, count] = [
-      sk + k,
-      skk + k * k,
-      sc + line.center,
-      skc + k * line.center,
-      count + 1,
-    ];
+    if (lines[k]!.found) fit.add(k, lines[k]!.center);
   }
-  return count < 2
-    ? fallback
-    : (count * skc - sk * sc) / (count * skk - sk * sk);
+  return fit.count < 2 ? fallback : fit.slope;
 }
 
 /** Where `lattice` reaches: from one line before its first to one after its last. */
@@ -653,6 +662,13 @@ function latticeLines(
  * square cells is tried, and the strongest pair that has a grid in it wins.
  */
 export function findGrid(raster: Raster): GridResult {
+  if (raster.width < 2 || raster.height < 2) {
+    return {
+      ok: false,
+      reason: 'picture too small',
+      debug: { lattices: { h: [], v: [] } },
+    };
+  }
   const h = axis(raster);
   const v = axis(transpose(raster));
   const debug: Debug = { lattices: { h: h.lattices, v: v.lattices } };
@@ -671,6 +687,7 @@ export function findGrid(raster: Raster): GridResult {
     const hs = latticeLines(h, hl, vl);
     const vs = latticeLines(v, vl, hl);
     const pitch = (hs.lattice.pitch + vs.lattice.pitch) / 2;
+    debug.allLines ??= { h: hs.lines, v: vs.lines };
     const rect = rectangle(h.edges, v.edges, hs.lines, vs.lines, pitch);
     if (!rect) continue;
     const { top, bottom, left, right } = rect.grid;

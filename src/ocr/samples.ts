@@ -8,7 +8,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import sharp from 'sharp';
 
 import type { Raster } from './raster.ts';
@@ -17,13 +17,14 @@ export const SAMPLES_DIR =
   process.env.NONOGRAM_SAMPLES ??
   join(homedir(), 'others', 'reddit-nonograms-ocr');
 
+const PICTURE = /\.(webp|png|jpe?g)$/i;
+
 export type Sample = {
   name: string;
   path: string;
-  checked: boolean;
-  /** The size of the grid, from the number of clue lines. */
-  rows: number;
-  cols: number;
+  /** What its `.clues` file says, if it has one: the size of the grid (from the number of clue
+   * lines), and whether that's been checked. */
+  clues?: { rows: number; cols: number; checked: boolean };
 };
 
 /** The format: comment lines starting with `#`, then `columns`, a line per column, `rows`, and a
@@ -33,10 +34,13 @@ export function parseClues(text: string): {
   cols: number;
   checked: boolean;
 } {
-  const lines = text.split('\n');
+  const lines = text.split(/\r?\n/).map((l) => l.trimEnd());
   const content = lines.filter((l) => !l.startsWith('#'));
   const columns = content.indexOf('columns');
   const rows = content.indexOf('rows');
+  if (columns < 0 || rows < columns) {
+    throw new Error('expected a `columns` line, and then a `rows` line');
+  }
   const count = (from: number, to: number) =>
     content.slice(from, to).filter((l) => l.trim() !== '').length;
   return {
@@ -46,6 +50,19 @@ export function parseClues(text: string): {
   };
 }
 
+/** The picture at `path`, and what the `.clues` file beside it says, if there is one. */
+export function sample(path: string): Sample {
+  const name = basename(path, extname(path));
+  let text: string;
+  try {
+    text = readFileSync(join(path, '..', `${name}.clues`), 'utf8');
+  } catch {
+    return { name, path };
+  }
+  return { name, path, clues: parseClues(text) };
+}
+
+/** The pictures in `dir` that have clues, in order (numerically, where they're numbered). */
 export function samples(dir = SAMPLES_DIR): Sample[] {
   let names: string[];
   try {
@@ -53,21 +70,12 @@ export function samples(dir = SAMPLES_DIR): Sample[] {
   } catch {
     return [];
   }
-  const out: Sample[] = [];
-  for (const file of names) {
-    const match = /^(.*)\.(webp|png|jpe?g)$/.exec(file);
-    if (!match) continue;
-    const name = match[1]!;
-    let clues: string;
-    try {
-      clues = readFileSync(join(dir, `${name}.clues`), 'utf8');
-    } catch {
-      continue;
-    }
-    out.push({ name, path: join(dir, file), ...parseClues(clues) });
-  }
   const key = (s: Sample) => (/^\d+$/.test(s.name) ? Number(s.name) : Infinity);
-  return out.sort((a, b) => key(a) - key(b) || a.name.localeCompare(b.name));
+  return names
+    .filter((file) => PICTURE.test(file))
+    .map((file) => sample(join(dir, file)))
+    .filter((s) => s.clues)
+    .sort((a, b) => key(a) - key(b) || a.name.localeCompare(b.name));
 }
 
 export async function decode(path: string): Promise<Raster> {

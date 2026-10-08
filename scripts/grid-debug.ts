@@ -8,7 +8,7 @@
  *   node --experimental-strip-types scripts/grid-debug.ts [DIR | PICTURE...] [--out DIR]
  */
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 
@@ -16,6 +16,7 @@ import { findGrid, type GridResult, type Line } from '../src/ocr/grid.ts';
 import type { Raster } from '../src/ocr/raster.ts';
 import {
   decode,
+  sample,
   samples,
   SAMPLES_DIR,
   type Sample,
@@ -28,29 +29,28 @@ const inputs = args.filter(
   (_, i) => outIndex < 0 || (i !== outIndex && i !== outIndex + 1)
 );
 
-const dir =
-  inputs.length === 1 && !/\.\w+$/.test(inputs[0]!) ? inputs[0]! : SAMPLES_DIR;
-let list: Sample[] = samples(dir);
-if (inputs.length > 0 && inputs.some((i) => /\.\w+$/.test(i))) {
-  list = list.filter((s) => inputs.some((i) => s.path.endsWith(i)));
-}
+// Each directory's samples, and each picture (with its clues, if it has any).
+const list: Sample[] = (inputs.length > 0 ? inputs : [SAMPLES_DIR]).flatMap(
+  (input) => (statSync(input).isDirectory() ? samples(input) : [sample(input)])
+);
 if (out) mkdirSync(out, { recursive: true });
 
 let [right, wrong] = [0, 0];
-for (const sample of list) {
-  const raster = await decode(sample.path);
+for (const s of list) {
+  const raster = await decode(s.path);
   const start = performance.now();
   const result = findGrid(raster);
   const ms = performance.now() - start;
   const found = result.ok
     ? `${result.grid.rows}x${result.grid.cols}`
     : `- (${result.reason})`;
-  const expected = `${sample.rows}x${sample.cols}`;
+  const { clues } = s;
   const matches =
     result.ok &&
-    result.grid.rows === sample.rows &&
-    result.grid.cols === sample.cols;
-  if (sample.checked) {
+    clues !== undefined &&
+    result.grid.rows === clues.rows &&
+    result.grid.cols === clues.cols;
+  if (clues?.checked) {
     if (matches) right++;
     else wrong++;
   }
@@ -61,16 +61,18 @@ for (const sample of list) {
     : '';
   console.log(
     [
-      sample.name.padEnd(6),
-      (sample.checked ? 'checked' : 'unchecked').padEnd(10),
-      `expected ${expected}`.padEnd(15),
+      s.name.padEnd(6),
+      (!clues ? 'no clues' : clues.checked ? 'checked' : 'unchecked').padEnd(
+        10
+      ),
+      `expected ${clues ? `${clues.rows}x${clues.cols}` : '?'}`.padEnd(15),
       `found ${found}`.padEnd(22),
-      matches ? 'ok  ' : 'BAD ',
+      !clues ? '    ' : matches ? 'ok  ' : 'BAD ',
       `${ms.toFixed(0)}ms`.padStart(6),
       pitch,
     ].join(' ')
   );
-  if (out) await draw(raster, result, join(out, `${sample.name}.png`));
+  if (out) await draw(raster, result, join(out, `${s.name}.png`));
 }
 console.log(`checked: ${right} right, ${wrong} wrong`);
 

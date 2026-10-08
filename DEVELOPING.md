@@ -12,7 +12,7 @@ Use the Node version in `.nvmrc` (`nvm use`); the tests need Node's TypeScript s
 ```
 npm run test:unit    # node --test over src/**/*.test.ts
 npm run test:types   # tsc
-npm run lint
+npm run lint         # src/ and scripts/
 ```
 
 Source files import each other with `.ts` extensions, so that Node can run them directly
@@ -23,8 +23,9 @@ Source files import each other with `.ts` extensions, so that Node can run them 
 `findGrid(raster)` takes decoded RGB pixels (`src/ocr/raster.ts`; decoding isn't its business,
 and which decoder will work on Devvit is still an open question) and returns the grid's size and
 every grid line's position: `lead` (its first row of pixels) and `trail` (one past its last), so
-each cell's inside is from one line's `trail` to the next one's `lead`. It takes about 30–100 ms
-on a phone screenshot.
+each cell's inside is from one line's `trail` to the next one's `lead`. It takes about 20–160 ms
+on a phone screenshot. (A picture covered in graph paper, which it can't do anything with, takes
+over a second.)
 
 What the screenshots show, measured in eight different apps:
 
@@ -45,10 +46,13 @@ two filled cells. The steps:
 1. `edges`: an edge wherever a pixel differs from the next by more than a threshold, in any of
    R, G, B. Compression blurs edges over a few pixels, so only the strongest counts, but only
    compared with neighbors that change the same way: a thin line's two edges are a pixel apart.
-   The edges in each row of pixels are joined into runs.
-2. `profile`: how much edge each row has, counting only runs at least 50 px long. That leaves
-   out digits and marks, and is where "pixel-perfect" comes in: a grid line in a screenshot is
-   one long run in a single row of pixels. In a photo, the line wanders from row to row.
+   The edges in each row of pixels are joined into runs, bridging gaps of up to 20 px: where cells
+   are drawn as tiles, the gaps between them cross each tile's edge, often with rounded corners
+   either side.
+2. `profile`: how much edge each row has, counting only runs at least 50 px long and at least
+   half edge. That leaves out digits and marks, and is where "pixel-perfect" comes in: a grid line
+   in a screenshot is one long run in a single row of pixels. In a photo, the line wanders from
+   row to row.
 3. `lattices`: the likeliest evenly spaced sets of peaks in that profile. Each one is grown from
    a pair of peaks, refitting the spacing as it goes. Half the true spacing misses every other
    line, and five times the spacing (just the heavy lines) is short, so the true spacing scores
@@ -91,8 +95,9 @@ there.
 node --experimental-strip-types scripts/grid-debug.ts [DIR | PICTURE...] [--out DIR]
 ```
 
-prints, for each picture, the size found against the size expected, with the time taken. With
-`--out`, it draws what it found. Gray dashes are the lattice. Purple is the rectangle, including
+prints, for each picture (by default, each one in the samples directory with a `.clues` file),
+the size found against the size expected, with the time taken. With `--out`, it draws what it
+found. Gray dashes are the lattice. Purple is the rectangle, including
 any clue boxes. Green is each grid line, from `lead` to `trail`, and cyan is a line that wasn't
 seen and was placed where the lattice says. It decodes with `sharp`, a dev-only dependency
 (it's native).
@@ -100,7 +105,8 @@ seen and was placed where the lattice says. It decodes with `sharp`, a dev-only 
 ### Known failures
 
 - A background with a grid of its own, at a spacing that the puzzle's is a multiple of (sample
-  10). The background's lattice outweighs the puzzle's. Not worth solving for now.
+  10). The background's lattice outweighs the puzzle's, so no grid is found. Not worth solving for
+  now.
 - Clue areas drawn as part of one big grid, including the corner between them (sample 19). No
   line clearly stops, so there's nothing to tell where the grid starts, except that the clue
   cells are gray.
