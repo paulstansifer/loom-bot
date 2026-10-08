@@ -370,12 +370,12 @@ those lanes are copied into them, unseen.
 
 ## Photos of paper (`src/ocr/paper/`)
 
-Photos of printed puzzles look nothing like screenshots, so they get their own pipeline, with
-its own settings: nothing in it is shared with the screenshot one, whose settings are left
-alone. So far it only finds the grid; nothing reads cells or clues from it yet, and the bot
-doesn't use it.
+Photos of printed puzzles look nothing like screenshots, so they get their own way of finding
+the grid. Then the photo is straightened, so that it looks like a screenshot, and read by the
+same readers, but with settings of their own (`Settings`, in `src/ocr/settings.ts`; the paper
+ones are in `paper/settings.ts`), so that the screenshots' are left alone.
 
-Which kind a picture is will be decided by which pipeline works: the screenshot one first,
+Which kind a picture is is decided by which works (`reply.ts`): the screenshot pipeline first,
 unchanged, and this one only if that finds no grid, or reads clues that don't make sense. (Telling
 them apart beforehand didn't work. Screenshots' flat areas (pixels the same as their neighbors)
 overlap with photos', since WebP smooths photos and some apps have textured backgrounds. And
@@ -413,7 +413,10 @@ border), which are darker than anything the person draws but a heavily scribbled
    nowhere. At least a block each way.
 7. The mesh: where each chosen heavy line meets each other one. `point(u, v)` is a Coons patch in
    each block, so it follows the heavy lines along all four sides, and cuts each block evenly.
-   Past the grid, it carries on along the outermost block's curves, to where the clues are.
+   Past the grid, it carries on along the outermost block's curves, to where the clues are. A
+   heavy line, past where it was seen, is placed from the two nearest lines that were seen there
+   (as many cells on from them as it is), not by its own cubic, which goes its own way: sample
+   13's right border was only seen below its fills, and at the top of its clues was a cell off.
 
 On the photos it finds 6's grid (45x35, as printed on it), 11's (30x30, likewise) and 13's
 (45x35, counted), and 10x15 in one of the Rust bot's downloads
@@ -427,7 +430,49 @@ node --experimental-strip-types scripts/paper-debug.ts [DIR | PICTURE...] [--out
 ```
 
 says what size grid it finds in each picture, and with `--out`, draws its lines (gray), its
-heavy lines (orange), the ones chosen (red), and the cells (green, and dashed past the grid).
+heavy lines (orange), the ones chosen (red), and the cells (green, and dashed past the grid);
+and the straightened picture, with the glyphs found in it boxed and named.
+
+`straighten` (`rectify.ts`) resamples the photo through the mesh into a picture with 32 px cells,
+reaching out past the grid to the left and top (up to 0.6 of the grid's size, or the photo's
+edge) for the clues. Then:
+
+- `flatten`: each channel is divided by the paper's color, a quadratic surface fitted to each
+  cell's brightest, leaving out cells well below the fit (fills, even where most of the grid is
+  red marker). So the paper is white, as in a screenshot. Without this, the row clues weren't
+  split into numbers, and the filled cells weren't told from the empty ones.
+- `lineOffsets`: where each line is, beside each cell, within 0.2 of a cell of where it should
+  be. Offsets far from those along the line around them are dropped (a digit's stroke), and a
+  line seen along less than 30% of the picture isn't one (past the grid, there may be no lines,
+  but there are digits). The gaps are filled in along each line. The mesh is moved by them, and
+  the photo resampled, up to 3 times, until the lines are within a pixel. That puts right the
+  clues' cells (sample 13's last columns were narrowed), and the clue area's own lines where
+  the page curls toward the spine (sample 11).
+- `unrule`: past the grid, lines along where the grid's lines would be, solid or dashed, are
+  erased where they're narrow (paper 4 px either side), if they're there for 40% of the clue
+  area: sample 11's clue boxes are graph paper with dashed lines, and the dashes were read as
+  "1"s. Only runs as short as a dash (0.4 of a cell), or longer than a cell (a solid line): a
+  digit's stroke that happens to be along a line is in between.
+
+`readPaper` (`paper/read.ts`) then reads it with `readWithGrid`, with the paper settings. They
+differ from the screenshots' in:
+
+- `typicalFrom`: the typical glyph's height, which says what's too small to be a digit, is
+  taken only from glyphs at least 0.4 of a cell tall. Pen strokes across sample 11's clues, and
+  what's left of its dashes, break into pieces that outnumbered the digits, so the typical
+  height was a piece's, none were dropped, and pieces side by side in the columns' clues were
+  taken for two-digit numbers, which made every row one number.
+
+How the photos read (the `.clues` files of all of them are unchecked, so this is by eye):
+
+- 13 (finished, in red marker): consistent, and solves by line logic with the grid's help. The
+  clues alone are close (the totals differ by 9).
+- 1wvi8zy: every clue read right; its clues have two solutions. Its cells are read roughly
+  (pink X's aren't seen).
+- 6: inconsistent: the clues the person crossed out in pencil are misread.
+- 11: inconsistent: nearly every clue is crossed out in pen, and most are misread.
+
+It takes 2 to 5 s a photo, mostly straightening (each pass resamples the photo).
 
 Not handled:
 
@@ -448,6 +493,10 @@ Things that didn't work, so as not to try them again:
 - Counting cells by the median gap between lines: scribbled fills add ridges between lines.
 - Darker than either side by 0.08, for unbroken lines: thin lines under marker are only a little
   darker than it.
+- Looking for lines within 0.3 of a cell of where they should be, when straightening: digits
+  beside the lines were taken for them, and pulled 13's last column of clues out of shape.
+- Putting the straightened picture right only from the grid's lines: past the grid, the clue
+  area's own lines can be off, where the page curls.
 
 ## Solving (`src/solve/`)
 
@@ -518,7 +567,8 @@ the Rust bot's `first_picture` does). A crosspost's is the original's. Only pict
 domains in `devvit.json`. A post without one gets no reply.
 
 `replyTo` (`reply.ts`) finds the grid, reads the clues, and checks them (`src/ocr/read.ts`,
-which `glyph-debug.ts` uses too). If they make sense, it replies with guidance (`guidance.ts`, a
+which `glyph-debug.ts` uses too). If that finds no grid, or clues that don't make sense, it tries again as a
+photo of paper (see "Photos of paper"). If they make sense, it replies with guidance (`guidance.ts`, a
 port of the Rust bot's `guidance.rs`, whose message wording is human-written: don't change it).
 That includes a link that opens the puzzle in the web app. For now, while the bot is being
 tested, every reply also has debugging information: what was read, and how long it took. And

@@ -10,6 +10,7 @@ import type { Grid } from './grid.ts';
 import { name, type Naming } from './names.ts';
 import { numbers } from './numbers.ts';
 import type { Raster } from './raster.ts';
+import { SCREENSHOT, type Settings } from './settings.ts';
 
 /** How close two glyphs' looks must be to be grouped (see `DEVELOPING.md`). */
 export const THRESHOLD = 0.12;
@@ -35,9 +36,10 @@ export type Reading = {
 export function readClues(
   raster: Raster,
   grid: Grid,
-  threshold = THRESHOLD
+  threshold = THRESHOLD,
+  settings: Settings = SCREENSHOT
 ): Reading {
-  const lanes = findGlyphs(raster, grid);
+  const lanes = findGlyphs(raster, grid, settings);
   const glyphs = [...lanes.columns, ...lanes.rows].flat();
   const looks = glyphs.map(look);
   const groups = cluster(looks, threshold);

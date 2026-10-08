@@ -10,6 +10,7 @@
 
 import type { Grid } from './grid.ts';
 import type { Raster } from './raster.ts';
+import { SCREENSHOT, type Settings } from './settings.ts';
 
 export type RGB = [number, number, number];
 
@@ -76,7 +77,11 @@ const DIRECTIONS = [
 ] as const;
 
 /** The glyphs in front of each of `grid`'s lanes. */
-export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
+export function findGlyphs(
+  raster: Raster,
+  grid: Grid,
+  settings: Settings = SCREENSHOT
+): LaneGlyphs {
   const { horizontal: h, vertical: v } = grid;
   const pitch = (grid.pitch.h + grid.pitch.v) / 2;
   const columnLanes: Lane[] = [];
@@ -103,6 +108,7 @@ export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
   const heights = [...columns, ...rows]
     .flatMap((f) => f.glyphs)
     .map((g) => g.y1 - g.y0)
+    .filter((h) => h >= settings.typicalFrom * pitch)
     .sort((p, q) => p - q);
   const typical = heights[Math.floor(heights.length / 2)] ?? 0;
   const big = (g: Glyph) => bigEnough(g, typical);

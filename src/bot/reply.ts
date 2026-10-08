@@ -7,11 +7,21 @@
  * or seem to be crossed out (`explain.ts`), are worked out from it (`repair.ts`); clues that seem
  * misnamed are named again. If the progress contradicts the clues in many lanes, it was probably
  * misread, and the guidance is for someone who hasn't started.
+ *
+ * A picture is read as a screenshot first, and only if that doesn't work, as a photo of paper
+ * (`src/ocr/paper/`), which has its own way of finding the grid.
  */
 
 import { findPuzzle } from '../ocr/bounds.ts';
-import { cellsText, contradicted, stateCells } from '../ocr/cells.ts';
+import {
+  cellsText,
+  contradicted,
+  type State,
+  stateCells,
+} from '../ocr/cells.ts';
 import { readWithGrid } from '../ocr/explain.ts';
+import type { Grid } from '../ocr/grid.ts';
+import { readPaper } from '../ocr/paper/read.ts';
 import type { Raster } from '../ocr/raster.ts';
 import { cluesText, consistency, type Reading } from '../ocr/read.ts';
 import { blankGrid } from '../solve/grid.ts';
@@ -21,8 +31,10 @@ import { guidance, guidanceToMessage } from './guidance.ts';
 /** Fewer lanes than this with clues in them, in either direction, isn't a puzzle. */
 const MIN_LANES = 4;
 
-/** If the progress read contradicts more than this fraction of the lanes, it's not believed. */
+/** If the progress read contradicts more than this fraction of the lanes, it's not believed
+ * (in a screenshot, or a photo of paper). */
 const MOST_CONTRADICTED = 0.25;
+const PAPER_MOST_CONTRADICTED = 0.25;
 
 /** Reddit's limit on a comment's length is 10,000 characters. */
 const MAX_REPLY = 9500;
@@ -39,6 +51,19 @@ export type Reply = {
   reading?: Reading;
 };
 
+/** A reading of the picture, as a screenshot or as a photo of paper. */
+type Attempt = {
+  kind: 'screenshot' | 'paper';
+  grid: Grid;
+  reading: Reading;
+  states: State[];
+  filled: number;
+  /** The facts about it, for the debugging information. */
+  facts: string[];
+  /** What's wrong with it, if anything. */
+  problem?: string;
+};
+
 export function replyTo(raster: Raster): Reply {
   const timings: string[] = [];
   const timed = <T>(what: string, f: () => T): T => {
@@ -47,45 +72,41 @@ export function replyTo(raster: Raster): Reply {
     timings.push(`${what} ${(performance.now() - start).toFixed(0)} ms`);
     return result;
   };
-  const picture = `${raster.width}x${raster.height} picture`;
+  const picture = `Picture: ${raster.width}x${raster.height}.`;
 
-  const found = timed('grid', () => findPuzzle(raster));
-  if (!found.ok)
-    return debug(
-      `no grid found: ${found.reason}`,
-      [`Picture: ${picture}.`],
-      timings
-    );
-  const { grid } = found;
-  const { reading, states, filled } = readWithGrid(raster, grid, timed);
-  const check = consistency(reading);
-  const facts = [
-    `Picture: ${picture}. Grid: ${grid.cols}x${grid.rows}` +
-      (grid.pixelPerfect ? '.' : ', not straight (a photo?).'),
-    `Clue totals: columns ${check.columnTotal}, rows ${check.rowTotal}. ` +
-      `Lanes that don't fit: ${check.misfits}. Empty lanes: ${check.empty}. ` +
-      `Glyph groups: ${reading.members.length}; least naming margin ${check.margin.toFixed(3)}.`,
-  ];
-  const withClues = (lanes: number[][]) =>
-    lanes.filter((l) => l.length > 0).length;
-  if (
-    withClues(reading.rows) < MIN_LANES ||
-    withClues(reading.columns) < MIN_LANES
-  )
-    return debug(
-      'too few lanes with clues for a puzzle',
-      facts,
-      timings,
-      reading
-    );
-  if (!check.consistent)
-    return debug("the clues read aren't consistent", facts, timings, reading);
+  // As a screenshot, and if that doesn't work, as a photo of paper.
+  const shot = asScreenshot(raster, timed);
+  const attempt =
+    typeof shot !== 'string' && !shot.problem
+      ? shot
+      : (() => {
+          const photo = asPaper(raster, timed);
+          if (typeof photo !== 'string' && !photo.problem) return photo;
+          // Neither: whichever got further says why.
+          if (typeof shot !== 'string') {
+            shot.facts.push(
+              `As a photo of paper: ${typeof photo === 'string' ? photo : photo.problem}.`
+            );
+            return shot;
+          }
+          if (typeof photo !== 'string') {
+            photo.facts.unshift(`As a screenshot: no grid found (${shot}).`);
+            return photo;
+          }
+          return `no grid found: ${shot}; as a photo of paper, ${photo}`;
+        })();
+  if (typeof attempt === 'string') return debug(attempt, [picture], timings);
+  const { kind, grid, reading, states, filled, facts, problem } = attempt;
+  facts.unshift(picture);
+  if (problem) return debug(problem, facts, timings, reading);
 
   const puzzle = blackAndWhite(reading.rows, reading.columns);
   const cells = stateCells(states);
   const broken = contradicted(puzzle, cells).length;
   const believed =
-    grid.pixelPerfect && broken <= MOST_CONTRADICTED * puzzle.lanes.length;
+    kind === 'paper'
+      ? broken <= PAPER_MOST_CONTRADICTED * puzzle.lanes.length
+      : grid.pixelPerfect && broken <= MOST_CONTRADICTED * puzzle.lanes.length;
   facts.push(
     `Progress read (${believed ? 'used' : 'not used'}; ${broken} lanes contradict it; ` +
       `${filled} unreadable clues worked out from it):\n\n${cellsText(
@@ -101,7 +122,7 @@ export function replyTo(raster: Raster): Reply {
   );
   if (g === 'no-solution')
     return debug('the clues read have no solution', facts, timings, reading);
-  const status = `read ${puzzle.width}x${puzzle.height}: ${g.solved}`;
+  const status = `read ${puzzle.width}x${puzzle.height}${kind === 'paper' ? ' (paper)' : ''}: ${g.solved}`;
   return {
     status,
     reading,
@@ -110,6 +131,57 @@ export function replyTo(raster: Raster): Reply {
         debugSection(status, facts, timings, reading)
     ),
   };
+}
+
+type Timed = <T>(what: string, f: () => T) => T;
+
+/** The picture read as a screenshot, or why there's no grid. */
+function asScreenshot(raster: Raster, timed: Timed): Attempt | string {
+  const found = timed('grid', () => findPuzzle(raster));
+  if (!found.ok) return found.reason;
+  const { grid } = found;
+  const read = readWithGrid(raster, grid, timed);
+  return judged({
+    kind: 'screenshot',
+    grid,
+    ...read,
+    facts: [
+      `Grid: ${grid.cols}x${grid.rows}` +
+        (grid.pixelPerfect ? '.' : ', not straight (a photo?).'),
+    ],
+  });
+}
+
+/** The picture read as a photo of paper, or why there's no grid. */
+function asPaper(raster: Raster, timed: Timed): Attempt | string {
+  const read = readPaper(raster, timed);
+  if (!read.ok) return read.reason;
+  const { grid } = read;
+  return judged({
+    kind: 'paper',
+    ...read,
+    facts: [`Grid: ${grid.cols}x${grid.rows}, in a photo of paper.`],
+  });
+}
+
+/** `a`, with what the clues read add up to, and what's wrong with them, if anything. */
+function judged(a: Attempt): Attempt {
+  const { reading } = a;
+  const check = consistency(reading);
+  a.facts.push(
+    `Clue totals: columns ${check.columnTotal}, rows ${check.rowTotal}. ` +
+      `Lanes that don't fit: ${check.misfits}. Empty lanes: ${check.empty}. ` +
+      `Glyph groups: ${reading.members.length}; least naming margin ${check.margin.toFixed(3)}.`
+  );
+  const withClues = (lanes: number[][]) =>
+    lanes.filter((l) => l.length > 0).length;
+  if (
+    withClues(reading.rows) < MIN_LANES ||
+    withClues(reading.columns) < MIN_LANES
+  )
+    a.problem = 'too few lanes with clues for a puzzle';
+  else if (!check.consistent) a.problem = "the clues read aren't consistent";
+  return a;
 }
 
 /** A reply saying what went wrong. */

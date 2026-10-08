@@ -5,6 +5,8 @@
  * - orange: the lines heavy enough to be a grid's heavy lines,
  * - red: the heavy lines chosen as the grid's,
  * - green: the grid's cells (from the mesh), and dashed, carried on past it to where clues are.
+ * and `NAME-straight.png`, the photo straightened through the mesh (`rectify.ts`), with the clues'
+ * glyphs found there boxed (orange if struck out), and each labeled with its group's name.
  *
  *   node --experimental-strip-types scripts/paper-debug.ts [DIR | PICTURE...] [--out DIR]
  */
@@ -15,6 +17,9 @@ import sharp from 'sharp';
 
 import type { Curve } from '../src/ocr/paper/lines.ts';
 import { findPaperGrid, type PaperResult } from '../src/ocr/paper/mesh.ts';
+import { straighten } from '../src/ocr/paper/rectify.ts';
+import { PAPER } from '../src/ocr/paper/settings.ts';
+import { readClues, type Reading, THRESHOLD } from '../src/ocr/read.ts';
 import type { Raster } from '../src/ocr/raster.ts';
 import {
   decode,
@@ -65,6 +70,14 @@ for (const s of list) {
         ? s.path.replace(/[/.]/g, '_')
         : s.name;
     await draw(raster, result, join(out, `${name}.png`));
+    if (result.ok) {
+      const straight = straighten(raster, result.grid);
+      await drawRead(
+        straight.raster,
+        readClues(straight.raster, straight.grid, THRESHOLD, PAPER),
+        join(out, `${name}-straight.png`)
+      );
+    }
   }
 }
 
@@ -147,6 +160,37 @@ async function draw(raster: Raster, result: PaperResult, path: string) {
     }
   }
   await sharp(Buffer.from(data), { raw: { width, height, channels: 3 } })
+    .png()
+    .toFile(path);
+}
+
+/** The glyphs of `reading` boxed on `raster`, each labeled with its group's name. */
+async function drawRead(raster: Raster, reading: Reading, path: string) {
+  const { width, height } = raster;
+  const data = Uint8Array.from(raster.data);
+  const paint = (x: number, y: number, rgb: Rgb) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    data.set(rgb, (y * width + x) * 3);
+  };
+  let labels = '';
+  reading.glyphs.forEach((g, i) => {
+    const rgb: Rgb = g.struck ? [255, 140, 0] : [0, 170, 255];
+    for (let x = g.x0 - 1; x <= g.x1; x++) {
+      paint(x, g.y0 - 1, rgb);
+      paint(x, g.y1, rgb);
+    }
+    for (let y = g.y0 - 1; y <= g.y1; y++) {
+      paint(g.x0 - 1, y, rgb);
+      paint(g.x1, y, rgb);
+    }
+    const label = reading.names[reading.groups[i]!]!.name;
+    labels +=
+      `<text x="${g.x1 + 1}" y="${g.y0 + 7}" font-family="monospace" font-size="9" ` +
+      `fill="rgb(220,0,120)">${label}</text>`;
+  });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${labels}</svg>`;
+  await sharp(Buffer.from(data), { raw: { width, height, channels: 3 } })
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .png()
     .toFile(path);
 }

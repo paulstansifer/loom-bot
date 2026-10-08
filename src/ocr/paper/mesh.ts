@@ -272,6 +272,39 @@ function gridLines(
   };
 }
 
+/**
+ * The grid's lines, extrapolated past where each was seen from the lines beside it, not from its
+ * own curve: a cubic goes its own way past its ends, but the lines beside it, seen there, say
+ * how the lines spread (or converge) there. Each line's position, where it wasn't seen, is
+ * stepped out from the two nearest lines seen there (as many cells on as it is from them),
+ * shifted to meet its own curve where that ends.
+ */
+function steadied(curves: Curve[], cells: number[]): Curve[] {
+  const seen = (c: Curve, t: number) => t >= c.from && t <= c.to;
+  // Where line `i` would be at `t`, from two other lines seen there, or undefined.
+  const predict = (i: number, t: number): number | undefined => {
+    const others = curves
+      .map((_, k) => k)
+      .filter((k) => k !== i && seen(curves[k]!, t))
+      .sort((p, q) => Math.abs(p - i) - Math.abs(q - i));
+    if (others.length < 2) return undefined;
+    const [a, b] = [others[0]!, others[1]!];
+    const [pa, pb] = [curves[a]!.at(t), curves[b]!.at(t)];
+    return pa + ((pb - pa) * (cells[i]! - cells[a]!)) / (cells[b]! - cells[a]!);
+  };
+  return curves.map((c, i) => {
+    const at = (t: number) => {
+      if (seen(c, t)) return c.at(t);
+      const end = t < c.from ? c.from : c.to;
+      const there = predict(i, t);
+      const atEnd = predict(i, end);
+      if (there === undefined || atEnd === undefined) return c.at(t);
+      return there + (c.at(end) - atEnd);
+    };
+    return { ...c, at };
+  });
+}
+
 /** Where horizontal curve `h` (`y = h.at(x)`) meets vertical curve `v` (`x = v.at(y)`). */
 function meet(h: Curve, v: Curve, guess: number): { x: number; y: number } {
   let x = guess;
@@ -313,6 +346,8 @@ export function findPaperGrid(raster: Raster): PaperResult {
     cols.cells[cols.cells.length - 1]! < BLOCK
   )
     return { ok: false, reason: 'less than a block of cells', debug };
+  rows.curves = steadied(rows.curves, rows.cells);
+  cols.curves = steadied(cols.curves, cols.cells);
   debug.chosen = { h: rows.curves, v: cols.curves };
 
   // The mesh: where each heavy line meets each other one.

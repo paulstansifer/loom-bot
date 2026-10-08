@@ -24,20 +24,24 @@ import { contradicted, readCells, type State, stateCells } from './cells.ts';
 import type { Grid } from './grid.ts';
 import type { Naming } from './names.ts';
 import type { Raster } from './raster.ts';
-import { cluesNamed, readClues, type Reading } from './read.ts';
+import { cluesNamed, readClues, type Reading, THRESHOLD } from './read.ts';
 import { repair } from './repair.ts';
+import { SCREENSHOT, type Settings } from './settings.ts';
 
 /**
- * The clues read from `raster`, with second thoughts from the grid's state, and those that
+ * The clues read from `raster` (as `settings` say), with second thoughts from the grid's state, and those that
  * couldn't be read worked out from it; the grid's state; and how many clues were worked out.
  * `timed` runs each step, to time it.
  */
 export function readWithGrid(
   raster: Raster,
   grid: Grid,
-  timed: <T>(what: string, f: () => T) => T = (_, f) => f()
+  timed: <T>(what: string, f: () => T) => T = (_, f) => f(),
+  settings: Settings = SCREENSHOT
 ): { reading: Reading; states: State[]; filled: number } {
-  const read = timed('clues', () => readClues(raster, grid));
+  const read = timed('clues', () =>
+    readClues(raster, grid, THRESHOLD, settings)
+  );
   const { states } = timed('cells', () => readCells(raster, grid));
   const explained = timed(
     'groups',
