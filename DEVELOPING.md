@@ -308,3 +308,16 @@ have two solutions (a rectangle of four cells can be swapped), so it's `ambiguou
 
 Not ported yet: number-loom's line cache, which is only worth it if scrubbing turns out to be
 slow on real puzzles.
+
+## Share links (`src/formats/`)
+
+`shareUrl` makes a link that opens a picture (and, optionally, someone's progress) in
+number-loom's web app, from a Woven share string: Brotli-compressed JSON, in base64.
+`woven.ts` is a port of number-loom's `woven.rs`, and `TRANSLATION.md` there says from which
+commit and what changed. It writes byte-for-byte what number-loom does, and the tests hold it to
+that: `woven-fixtures/` is a copy of number-loom's frozen share strings. Share strings written
+for all the checked samples (with progress) read back right in the Rust app.
+
+It uses `node:zlib` for Brotli. That works in Node, but whether Devvit allows it hasn't been
+checked yet. If it doesn't, Brotli can store data uncompressed, which is easy to write, but makes
+for longer links.
