@@ -254,3 +254,50 @@ in both, the picture showed the reading was right and the file was wrong.
 - Sample 3's middle panel, and the spotlit corner of its row clues: gray digits with dark drop
   shadows on gradients, nearly the background's brightness. Five lanes are missing digits, and
   two have a digit named wrong.
+
+## Solving (`src/solve/`)
+
+There was no JavaScript nonogram solver that does both color puzzles and backtracking, so this is
+a port of number-loom's (`~/src/number-loom/src/solve/`), cut down to square cells and plain
+(color, count) clues. `TRANSLATION.md` there says which commit it's from, and what changed in
+each file. Keep it up to date when porting more from number-loom.
+
+`solve(puzzle, { timeLimitMs })` (`solve.ts`) is the Rust bot's `find_answer`. It runs line logic
+and, if that doesn't finish the puzzle, the search, for up to 2 s by default. It says how the
+answer was found (`line-logic`, `search`, `ambiguous` or `out-of-time`, or `no-solution`), and
+gives each cell's color (-1 where it isn't known). It's synchronous, and checks the time between
+guesses. A `Puzzle` (`puzzle.ts`) is colors `0..colors-1` (0 is the background), with a list of
+clues per lane: the rows, then the columns. `blackAndWhite(rows, columns)` makes one from
+numbers.
+
+- `line.ts`: what one lane says by itself. "Skimming" packs the clues to each end and keeps
+  what's covered both ways. "Scrubbing" (`exhaustLine`) finds every arrangement, in time linear
+  in clues × slack.
+- `grid.ts`: `SolveState` keeps picking the most promising lane, cheap skims first, then scrubs,
+  until the grid is solved or stalls. It can record an undo trail, and be cloned or rewound,
+  for the search.
+- `search.ts`: guess, propagate, and on a contradiction, learn a nogood from the lanes that
+  caused it and backjump (as in a CDCL SAT solver). After a first solution, rule it out and look
+  for a second, to tell unique from ambiguous.
+- `picker.ts`: which guess to make, alternating between the longest clues through a cell and
+  the cells whose lanes most disagree about a color.
+
+The ported Rust tests pin down hand-checked cases. Beyond them, `exhaustLine` is checked by
+brute force on every short lane, and random colored pictures have to solve to answers that agree
+with them.
+
+```
+node --experimental-strip-types scripts/solve-debug.ts [DIR | FILE...] [--time MS]
+```
+
+solves each sample's `.clues` (by default), or `.clues` files, olsak `.g` files (number-loom
+converts webpbn's format to those: `number-loom IN.xml OUT.g -o olsak`), or number-loom's
+one-pixel-per-cell pictures. It says how each was solved, how many lanes line logic skimmed and
+scrubbed, and how long it took. Line logic is deterministic, so those lane counts should match
+the `number-loom IN` report exactly. They do for all 31 of number-loom's square `puzzles/*.xml`
+and all 34 `examples/png`. (Guess counts won't match: the picker's random tie-breaking isn't
+Rust's.) Every one of those, and every checked sample, solves in under 10 ms. Sample 7's clues
+have two solutions (a rectangle of four cells can be swapped), so it's `ambiguous`.
+
+Not ported yet: number-loom's line cache, which is only worth it if scrubbing turns out to be
+slow on real puzzles.
