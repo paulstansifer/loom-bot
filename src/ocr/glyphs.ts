@@ -44,6 +44,10 @@ const INK_FRACTION = 0.4;
 /** How far apart (in RGB) two inks must be to be told apart: digits from lines crossing them
  * out. */
 const INK_COLORS_APART = 80;
+/** How different (in any of R, G, B) the background on one side of a point must be from the
+ * background around it to be another background (the top of a clue box, say), and not just a
+ * gradient. */
+const BACKGROUND_CHANGE = 24;
 /** How wide a line of another color crossing a glyph can be, and still be seen through. */
 const BRIDGE = 4;
 /** The narrowest a glyph can be, and the shortest, as fractions of the picture's typical glyph
@@ -63,37 +67,149 @@ const DIRECTIONS = [
 export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
   const { horizontal: h, vertical: v } = grid;
   const pitch = (grid.pitch.h + grid.pitch.v) / 2;
-  const columns: Glyph[][] = [];
+  const columnLanes: Lane[] = [];
   for (let i = 0; i < grid.cols; i++) {
-    const lane: Lane = {
+    columnLanes.push({
       vertical: true,
       length: h[0]!.lead,
       start: v[i]!.trail,
       width: v[i + 1]!.lead - v[i]!.trail,
-    };
-    columns.push(laneGlyphs(raster, lane, pitch));
+    });
   }
-  const rows: Glyph[][] = [];
+  const rowLanes: Lane[] = [];
   for (let j = 0; j < grid.rows; j++) {
-    const lane: Lane = {
+    rowLanes.push({
       vertical: false,
       length: v[0]!.lead,
       start: h[j]!.trail,
       width: h[j + 1]!.lead - h[j]!.trail,
-    };
-    rows.push(laneGlyphs(raster, lane, pitch));
+    });
   }
+  const columns = columnLanes.map((lane) => laneGlyphs(raster, lane, pitch));
+  const rows = rowLanes.map((lane) => laneGlyphs(raster, lane, pitch));
+
   const heights = [...columns, ...rows]
-    .flat()
+    .flatMap((f) => f.glyphs)
     .map((g) => g.y1 - g.y0)
     .sort((p, q) => p - q);
   const typical = heights[Math.floor(heights.length / 2)] ?? 0;
   const big = (g: Glyph) =>
     g.x1 - g.x0 >= MIN_WIDTH * typical && g.y1 - g.y0 >= MIN_HEIGHT * typical;
+  for (const f of [...columns, ...rows]) {
+    f.glyphs = f.glyphs.filter(big);
+    f.spare = f.spare.filter(big);
+  }
+
+  const columnStep = stackStep(columnLanes, columns);
   return {
-    columns: columns.map((lane) => lane.filter(big)),
-    rows: rows.map((lane) => lane.filter(big)),
+    columns: columns.map((f, i) =>
+      fillSlots(
+        columnLanes[i]!,
+        f,
+        nearestOffset(columnLanes, columns),
+        columnStep,
+        typical
+      )
+    ),
+    rows: rows.map((f, i) =>
+      fillSlots(
+        rowLanes[i]!,
+        f,
+        nearestOffset(rowLanes, rows),
+        undefined,
+        typical
+      )
+    ),
   };
+}
+
+/** What's found in a lane: its glyphs, in reading order, and others that might be glyphs too
+ * (too faint, or too far out), in case the layout says there should be one where they are. */
+type Found = { glyphs: Glyph[]; spare: Glyph[] };
+
+/** How far `g`'s middle is from the grid, along `lane`. */
+function along(lane: Lane, g: Glyph): number {
+  return lane.length - (lane.vertical ? (g.y0 + g.y1) / 2 : (g.x0 + g.x1) / 2);
+}
+
+/** How far `g`'s middle is from the middle of `lane`, across it. */
+function across(lane: Lane, g: Glyph): number {
+  const middle = lane.vertical ? (g.x0 + g.x1) / 2 : (g.y0 + g.y1) / 2;
+  return middle - (lane.start + lane.width / 2);
+}
+
+/** How far the clue nearest the grid usually is from it. (The clues are aligned against the
+ * grid, so it's about the same in every lane.) */
+function nearestOffset(lanes: Lane[], found: Found[]): number {
+  const offsets = found.flatMap((f, i) =>
+    f.glyphs.length === 0
+      ? []
+      : [Math.min(...f.glyphs.map((g) => along(lanes[i]!, g)))]
+  );
+  return median(offsets);
+}
+
+/** How far apart the lines of a column's clues are stacked, or `undefined` if there aren't
+ * enough stacked to say. */
+function stackStep(lanes: Lane[], found: Found[]): number | undefined {
+  const steps = found.flatMap((f, i) => {
+    const lines = textLines(f.glyphs).map((line) => along(lanes[i]!, line[0]!));
+    lines.sort((p, q) => p - q);
+    return lines.slice(1).map((d, k) => d - lines[k]!);
+  });
+  return steps.length < 3 ? undefined : median(steps);
+}
+
+/**
+ * The lane's glyphs, with spare ones added where a glyph is missing from where the layout says
+ * one should be. Going outward from the grid, by `step` (or only the nearest place, without one),
+ * an empty place gets the spare glyph there, if there is one (in the middle of the lane, and about
+ * the size of a digit). Past the outermost glyph, it stops at the first place without one.
+ */
+function fillSlots(
+  lane: Lane,
+  found: Found,
+  offset: number,
+  step: number | undefined,
+  typical: number
+): Glyph[] {
+  const tolerance = 0.5 * typical;
+  const spare = found.spare.filter((g) => {
+    const tall = (g.y1 - g.y0) / typical;
+    return (
+      Math.abs(across(lane, g)) < 0.25 * lane.width &&
+      tall > 0.75 &&
+      tall < 1.33
+    );
+  });
+  const at = (list: Glyph[], k: number) =>
+    list.find(
+      (g) => Math.abs(along(lane, g) - offset - k * (step ?? 0)) < tolerance
+    );
+  const outermost = found.glyphs.reduce(
+    (m, g) =>
+      Math.max(m, step ? Math.round((along(lane, g) - offset) / step) : 0),
+    -1
+  );
+  const added: Glyph[] = [];
+  for (let k = 0; k < 100; k++) {
+    if (k > 0 && !step) break;
+    if (at(found.glyphs, k)) continue;
+    const g = at(spare, k);
+    if (g) added.push(g);
+    else if (k > outermost) break;
+  }
+  const glyphs = [...found.glyphs, ...added];
+  // A row's clues are in one line, even if some (say, two-digit numbers, condensed) are smaller.
+  return lane.vertical
+    ? textLines(glyphs).flat()
+    : glyphs.sort((p, q) => p.x0 - q.x0);
+}
+
+function median(v: number[]): number {
+  if (v.length === 0) return 0;
+  const sorted = [...v].sort((p, q) => p - q);
+  return sorted[Math.floor(sorted.length / 2)]!;
 }
 
 /**
@@ -116,9 +232,9 @@ type Blob = {
   struck?: boolean;
 };
 
-function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Glyph[] {
+function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
   const { length, width } = lane;
-  if (length <= 0 || width <= 2) return [];
+  if (length <= 0 || width <= 2) return { glyphs: [], spare: [] };
   const xy = (a: number, c: number): [number, number] =>
     lane.vertical ? [lane.start + c, a] : [a, lane.start + c];
   const pixel = (a: number, c: number): number => {
@@ -127,16 +243,20 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Glyph[] {
   };
 
   const background = backgrounds(raster, lane, pixel, pitch);
-  // How different each pixel is from the background.
+  // How different each pixel is from the background (whichever is closer).
   const diff = new Uint8Array(length * width);
   for (let a = 0; a < length; a++) {
-    const bg = background[a]!;
+    const bgs = background[a]!;
     for (let c = 0; c < width; c++) {
       const i = pixel(a, c);
-      diff[a * width + c] = Math.max(
-        Math.abs(raster.data[i]! - bg[0]),
-        Math.abs(raster.data[i + 1]! - bg[1]),
-        Math.abs(raster.data[i + 2]! - bg[2])
+      diff[a * width + c] = Math.min(
+        ...bgs.map((bg) =>
+          Math.max(
+            Math.abs(raster.data[i]! - bg[0]),
+            Math.abs(raster.data[i + 1]! - bg[1]),
+            Math.abs(raster.data[i + 2]! - bg[2])
+          )
+        )
       );
     }
   }
@@ -149,26 +269,34 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Glyph[] {
   const fine = new Int32Array(length * width);
   const all = { a0: 0, a1: length, c0: 0, c1: width };
   const candidates: Blob[] = [];
+  // (Too faint to count as ink, unless the layout says there's a glyph missing there.)
+  const faint: Blob[] = [];
   let nextLabel = 1;
   for (const blob of connect(coarse, all, width, (p) => diff[p]! > FAINT, 1)) {
     const contrast = percentile(blobValues(blob, coarse, width, diff), 0.95);
-    if (contrast <= INK_THRESHOLD) continue;
+    if (contrast <= FAINT) continue;
     const cut = INK_FRACTION * contrast;
     const inBlob = (p: number) => coarse[p] === blob.label && diff[p]! > cut;
     const parts = connect(fine, blob, width, inBlob, nextLabel);
     nextLabel += parts.length;
     const good = parts.filter((b) => isGlyph(b, pitch));
+    if (contrast <= INK_THRESHOLD) {
+      faint.push(...good);
+      continue;
+    }
     if (good.length === parts.length) {
       candidates.push(...good);
       continue;
     }
     candidates.push(...good);
+    // (Only what's left over: the glyphs already found aren't found again.)
+    const found = new Set(good.map((b) => b.label));
     const struck = byColor(
       raster,
       blob,
       width,
       pixel,
-      inBlob,
+      (p) => inBlob(p) && !found.has(fine[p]!),
       fine,
       nextLabel,
       pitch
@@ -180,30 +308,37 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Glyph[] {
   candidates.sort((p, q) => q.a1 - p.a1);
   const kept: Blob[] = [];
   let frontier = length;
-  for (const b of candidates) {
+  let k = 0;
+  for (; k < candidates.length; k++) {
+    const b = candidates[k]!;
     if (frontier - b.a1 > pitch) break;
     kept.push(b);
     frontier = Math.min(frontier, b.a0);
   }
 
-  const glyphs = kept.map((b) => glyph(raster, lane, b, fine, diff, xy));
-  // A row's clues are in one line, even if some (say, two-digit numbers, condensed) are smaller.
-  return lane.vertical
-    ? textLines(glyphs).flat()
-    : glyphs.sort((p, q) => p.x0 - q.x0);
+  const asGlyph = (b: Blob) => glyph(raster, lane, b, fine, diff, xy);
+  return {
+    glyphs: kept.map(asGlyph),
+    spare: [...faint, ...candidates.slice(k)].map(asGlyph),
+  };
 }
 
 /**
- * The background color at each point along `lane`: the commonest color across its middle half,
- * over about a cell's length around that point. (The middle, since a lane's sides can be the gaps
- * between clue boxes.)
+ * The background colors that might be at each point along `lane`: the commonest color across its
+ * middle half, over about a cell's length around that point; and, if they're clearly different,
+ * ending there, and starting there. (The middle, since a lane's sides can be the gaps between
+ * clue boxes. The ones to either side, for where one background meets another, say, at the top
+ * of a clue box: there, over a cell's length around it, the other one can be commoner. Only if
+ * they're clearly different, since in a gradient, a faint digit can be nearly the same as the
+ * background a little way off. And nothing shorter than a cell: over a third of one, the
+ * commonest color can be a bold digit's.)
  */
 function backgrounds(
   raster: Raster,
   lane: Lane,
   pixel: (a: number, c: number) => number,
   pitch: number
-): RGB[] {
+): RGB[][] {
   const block = Math.max(4, Math.round(pitch / 3));
   const blocks = Math.ceil(lane.length / block);
   type Bin = { n: number; r: number; g: number; b: number };
@@ -233,10 +368,15 @@ function backgrounds(
     }
     histograms.push(hist);
   }
-  const colors: RGB[] = [];
-  for (let k = 0; k < blocks; k++) {
+  const commonest = (hist: Map<number, Bin>): RGB => {
+    let best: Bin = { n: 1, r: 0, g: 0, b: 0 };
+    for (const bin of hist.values()) if (bin.n > best.n) best = bin;
+    return [best.r / best.n, best.g / best.n, best.b / best.n];
+  };
+  /** The commonest color over blocks `from` to `to` (inclusive). */
+  const over = (from: number, to: number): RGB => {
     const merged = new Map<number, Bin>();
-    for (let j = Math.max(0, k - 1); j <= Math.min(blocks - 1, k + 1); j++) {
+    for (let j = Math.max(0, from); j <= Math.min(blocks - 1, to); j++) {
       for (const [key, bin] of histograms[j]!) {
         const m = merged.get(key);
         if (!m) merged.set(key, { ...bin });
@@ -248,9 +388,15 @@ function backgrounds(
         }
       }
     }
-    let best: Bin = { n: 1, r: 0, g: 0, b: 0 };
-    for (const bin of merged.values()) if (bin.n > best.n) best = bin;
-    colors.push([best.r / best.n, best.g / best.n, best.b / best.n]);
+    return commonest(merged);
+  };
+  const colors: RGB[][] = [];
+  for (let k = 0; k < blocks; k++) {
+    const around = over(k - 1, k + 1);
+    const sides = [over(k - 2, k), over(k, k + 2)].filter(
+      (c) => colorDiff(c, around) > BACKGROUND_CHANGE
+    );
+    colors.push([around, ...sides]);
   }
   return Array.from(
     { length: lane.length },
@@ -438,6 +584,15 @@ function byColor(
   for (const b of best) b.struck = true;
   const used = best.reduce((m, b) => Math.max(m, b.label - first + 1), 0);
   return { glyphs: best, labels: used };
+}
+
+/** How different two colors are, in the most different of R, G, B. */
+function colorDiff(p: RGB, q: RGB): number {
+  return Math.max(
+    Math.abs(p[0] - q[0]),
+    Math.abs(p[1] - q[1]),
+    Math.abs(p[2] - q[2])
+  );
 }
 
 function dist(p: RGB, q: RGB): number {

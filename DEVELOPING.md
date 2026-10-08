@@ -127,8 +127,14 @@ grid.
 it, between its two lines carried on upward, and a row's are to its left.
 
 1. The background, at each point along the lane, is the commonest color in the lane's middle
-   half, over about a cell's length. (Only the middle, since the lane's sides can be the gaps
-   between clue boxes.)
+   half, over about a cell's length around it. (Only the middle, since the lane's sides can be
+   the gaps between clue boxes.) Where one background meets another, say at the top of a clue
+   box, the other one can be commoner over that length. So the commonest colors over a cell's
+   length ending at the point, and starting there, count as background too, if they're clearly
+   different (by more than 24). At the top of sample 23's clue box, without this, the white
+   above made the box's tan count as ink, and it swallowed a faint "9". Not shorter lengths:
+   over a third of a cell, the commonest color can be a bold digit's. And not when they're
+   only a little different: then, in sample 3's gradients, faint digits disappeared.
 2. Blobs are the 8-connected pixels that differ from the background even faintly. Each blob is
    then cut again, at 40% of its own contrast. That way a dimmed clue is cut the same way as the
    rest, and faint fringes don't join neighboring digits. With one fixed threshold, dimmed
@@ -139,12 +145,22 @@ it, between its two lines carried on upward, and a row's are to its left.
    Its colors are split three ways by k-means (two ways split by brightness, putting the dark
    red lines in with the black digits). Whichever color makes the most glyph-shaped blobs wins.
    Pixels of another color with that color on both sides, within 4 px, count as that color too:
-   they're where a line crosses a stroke. Those glyphs are flagged `struck`.
+   they're where a line crosses a stroke. Those glyphs are flagged `struck`. (Only the
+   blob's pixels that weren't already glyphs: otherwise, a digit on a box of its own, or with
+   a drop shadow, is found twice.)
 4. Outward from the grid, glyphs are kept until there's a gap of more than a cell.
 5. Slivers and specks are dropped: anything narrower than 0.2 of the picture's median glyph
    height, or shorter than 0.6 of it. They're bits of lines and boxes, or of a digit's shadow.
    No typeface in the samples has a "1" narrower than 0.3 of its height, or a digit shorter
    than 0.87 of the median.
+6. Missing glyphs are looked for where the layout says they should be. The clues are aligned
+   against the grid, so the clue nearest the grid is about as far from it in every lane; and a
+   column's clues are evenly stacked. Where one of those places is empty, a blob there that was
+   left out (too faint, or past a gap) is taken, if it's in the middle of the lane and about a
+   digit's height. Columns are checked going outward, as far as one place past their outermost
+   clue; rows only at the place nearest the grid, since their numbers needn't be evenly
+   spaced. This only gains one lane on the samples, but it's cheap. (The one missing digit in
+   sample 3 that was looked into, row 5's last "1", leaves no blob at all.)
 
 `cluster` groups a picture's glyphs by how they look. Each glyph's ink, as a fraction of its
 contrast, is stretched to 16×16. Two glyphs are compared by the average difference, unless
@@ -189,18 +205,20 @@ name that digit. `--out` draws the glyphs (`NAME-glyphs.png`: green in a lane wi
 count, red otherwise) and the groups (`NAME-groups.png`). On the checked samples whose grid is
 found:
 
-- 420 of 440 lanes are read exactly right, and 425 have the right number of glyphs.
+- 433 of 440 lanes are read exactly right, and 435 have the right number of glyphs. Every
+  sample but 3 is read entirely right.
 - No group mixes two digits, at a threshold of 0.12. At 0.14, one glyph is in the wrong group,
-  and at 0.2, 56 are. Below 0.12, digits split into more groups.
-- 1298 of the 1309 glyphs in those lanes are in a group named right. The 11 that aren't are
-  10 of sample 3's shadowed digits and one of sample 21's. Elsewhere, the nearest template of
-  another digit is at least 0.026 further away.
-- It takes 10–210 ms a picture.
+  and at 0.2, 54 are. Below 0.12, digits split into more groups.
+- 1354 of the 1356 glyphs in those lanes are in a group named right. The two that aren't are
+  sample 3's shadowed digits. Elsewhere, the nearest template of another digit is at least
+  0.026 further away.
+- It takes 10–240 ms a picture.
+
+The row and column totals of a checked `.clues` file should agree. Two didn't (3 and 15), and
+in both, the picture showed the reading was right and the file was wrong.
 
 ### Known failures
 
-- Sample 3's middle panel: gray digits with dark drop shadows on a gradient, nearly the
-  background's brightness. The shadow and the digit come apart, some digits are missed, and
-  some are named wrong (15 of the 20 bad lanes).
-- Sample 21's three bad lanes (not looked into yet). Its condensed two-digit
-  numbers are a font of their own, but where they're found right, they read right.
+- Sample 3's middle panel, and the spotlit corner of its row clues: gray digits with dark drop
+  shadows on gradients, nearly the background's brightness. Five lanes are missing digits, and
+  two have a digit named wrong.
