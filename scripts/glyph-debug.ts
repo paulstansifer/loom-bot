@@ -15,18 +15,11 @@ import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 
-import {
-  cluster,
-  distance,
-  look,
-  meanLook,
-  shapeDistance,
-  type Look,
-} from '../src/ocr/cluster.ts';
+import { cluster, distance, look, meanLook } from '../src/ocr/cluster.ts';
 import { findGlyphs, type Glyph } from '../src/ocr/glyphs.ts';
-import { findGrid } from '../src/ocr/grid.ts';
+import { findPuzzle } from '../src/ocr/bounds.ts';
+import { name } from '../src/ocr/names.ts';
 import { numbers } from '../src/ocr/numbers.ts';
-import { templates, type Template } from './digit-templates.ts';
 import type { Raster } from '../src/ocr/raster.ts';
 import {
   decode,
@@ -46,27 +39,7 @@ const option = (name: string): string | undefined => {
 };
 const out = option('--out');
 const threshold = Number(option('--threshold') ?? 0.12);
-const aspectWeight = Number(option('--aspect') ?? 0.2);
 const verbose = args.includes('--verbose');
-const digitTemplates = await templates();
-
-/** The template nearest `l` in shape (and, a little, in proportions), and how much further the
- * nearest template of any other digit is. */
-function nearestTemplate(l: Look): {
-  template: Template;
-  d: number;
-  margin: number;
-} {
-  const byDigit = new Map<string, { template: Template; d: number }>();
-  for (const t of digitTemplates) {
-    const aspect = Math.abs(Math.log(l.w / l.h / (t.look.w / t.look.h)));
-    const d = shapeDistance(l, t.look) + aspectWeight * aspect;
-    if (d < (byDigit.get(t.digit)?.d ?? Infinity))
-      byDigit.set(t.digit, { template: t, d });
-  }
-  const [best, next] = [...byDigit.values()].sort((p, q) => p.d - q.d);
-  return { ...best!, margin: next!.d - best!.d };
-}
 const inputs = args.filter((a) => !a.startsWith('--'));
 
 const list: Sample[] = (inputs.length > 0 ? inputs : [SAMPLES_DIR]).flatMap(
@@ -86,7 +59,7 @@ for (const s of list) {
   const clues = s.clues;
   if (!clues?.checked) continue;
   const raster = await decode(s.path);
-  const result = findGrid(raster);
+  const result = findPuzzle(raster);
   if (
     !result.ok ||
     result.grid.rows !== clues.rows ||
@@ -160,9 +133,7 @@ for (const s of list) {
   const singletons = members.filter((m) => m.length === 1).length;
   // Each group named by the nearest template to its average look; how many glyphs that names
   // right.
-  const names = members.map((m) =>
-    nearestTemplate(meanLook(m.map((i) => looks[i]!)))
-  );
+  const names = members.map((m) => name(meanLook(m.map((i) => looks[i]!))));
   let named = 0;
   let worstMargin = Infinity;
   names.forEach((n, k) => {
@@ -171,14 +142,14 @@ for (const s of list) {
   });
   members.forEach((m) => {
     for (const i of m) {
-      if (glyphs[i]!.digit === names[groups[i]!]!.template.digit) named++;
+      if (glyphs[i]!.digit === names[groups[i]!]!.name) named++;
     }
   });
 
   // Each lane read whole: its glyphs grouped into numbers, each digit as its group is named. (No
   // clues reads the same as a single 0.)
   const index = new Map(glyphs.map((g, i) => [g.glyph, i]));
-  const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.template.digit;
+  const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.name;
   const asText = (clues: number[]) =>
     clues.length === 0 ? '0' : clues.join(' ');
   const laneNumbers = numbers(lanes);
@@ -228,12 +199,12 @@ for (const s of list) {
     for (const m of misread) console.log(`     ${m}`);
     groupDigits.forEach((digits, k) => {
       const label = digits.map(([d, n]) => `${d}x${n}`).join(' ') || '?';
-      const { template, d } = names[k]!;
-      const misnamed = digits.length > 0 && digits[0]![0] !== template.digit;
+      const { name: guess, d } = names[k]!;
+      const misnamed = digits.length > 0 && digits[0]![0] !== guess;
       if (digits.length > 1 || misnamed)
         console.log(
           `     group ${k} (${members[k]!.length}): ${label}; looks like ` +
-            `${template.digit} in ${template.font} (${d.toFixed(3)})`
+            `${guess} (${d.toFixed(3)})`
         );
     });
   }
@@ -244,7 +215,7 @@ for (const s of list) {
       members.map((m) => m.map((i) => glyphs[i]!.glyph)),
       groupDigits.map(
         (d, k) =>
-          `${d.map(([digit, n]) => `${digit}x${n}`).join(' ')} ~${names[k]!.template.digit}`
+          `${d.map(([digit, n]) => `${digit}x${n}`).join(' ')} ~${names[k]!.name}`
       ),
       join(out, `${s.name}-groups.png`)
     );

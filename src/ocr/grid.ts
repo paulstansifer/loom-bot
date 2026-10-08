@@ -21,6 +21,7 @@
  * transposed picture.
  */
 
+import type { Bounds } from './bounds.ts';
 import { type Raster, transpose } from './raster.ts';
 
 /** How different (in any of R, G, B) two pixels must be to make an edge. */
@@ -569,10 +570,22 @@ export type Debug = {
    * rectangles found among them (before and after leaving out clue boxes). */
   allLines?: { h: Line[]; v: Line[] };
   rectangle?: { full: Rectangle; grid: Rectangle };
+  /** The grid found from where the clues are (see `bounds.ts`), within the full rectangle, and
+   * whether it was convincing enough to use. */
+  byClues?: Bounds & { used: boolean };
 };
 
 export type GridResult =
-  | { ok: true; grid: Grid; debug: Debug }
+  | {
+      ok: true;
+      grid: Grid;
+      /** The biggest rectangle of cells, which can include clues (in boxes that carry on the
+       * grid's lines, or on graph paper), and the grid made of any rectangle within it (with
+       * `top`, etc. counting lines from its own). */
+      outer: Grid;
+      within: (r: Rectangle) => Grid;
+      debug: Debug;
+    }
   | { ok: false; reason: string; debug: Debug };
 
 /** One axis's worth of what's needed to find the grid. */
@@ -690,32 +703,28 @@ export function findGrid(raster: Raster): GridResult {
     debug.allLines ??= { h: hs.lines, v: vs.lines };
     const rect = rectangle(h.edges, v.edges, hs.lines, vs.lines, pitch);
     if (!rect) continue;
-    const { top, bottom, left, right } = rect.grid;
-    // Measure again, looking only where the grid is (not at, say, the edges of clue boxes
-    // beside it).
-    const [x0, x1] = [vs.lines[left]!.center, vs.lines[right]!.center];
-    const [y0, y1] = [hs.lines[top]!.center, hs.lines[bottom]!.center];
-    const horizontal = measure(
-      profile(h.edges, x0, x1, 1),
-      hs.lattice,
-      top,
-      bottom
-    );
-    const vertical = measure(
-      profile(v.edges, y0, y1, 1),
-      vs.lattice,
-      left,
-      right
-    );
-    const straight = {
-      h: straightness(h.edges, hs.lattice, top, bottom, x0, x1),
-      v: straightness(v.edges, vs.lattice, left, right, y0, y1),
-    };
-    debug.allLines = { h: hs.lines, v: vs.lines };
-    debug.rectangle = rect;
-    return {
-      ok: true,
-      grid: {
+    // The grid of lines `top` to `bottom` and `left` to `right`, measured again, looking only
+    // where the grid is (not at, say, the edges of clue boxes beside it).
+    const build = ({ top, bottom, left, right }: Rectangle): Grid => {
+      const [x0, x1] = [vs.lines[left]!.center, vs.lines[right]!.center];
+      const [y0, y1] = [hs.lines[top]!.center, hs.lines[bottom]!.center];
+      const horizontal = measure(
+        profile(h.edges, x0, x1, 1),
+        hs.lattice,
+        top,
+        bottom
+      );
+      const vertical = measure(
+        profile(v.edges, y0, y1, 1),
+        vs.lattice,
+        left,
+        right
+      );
+      const straight = {
+        h: straightness(h.edges, hs.lattice, top, bottom, x0, x1),
+        v: straightness(v.edges, vs.lattice, left, right, y0, y1),
+      };
+      return {
         rows: bottom - top,
         cols: right - left,
         horizontal,
@@ -726,7 +735,22 @@ export function findGrid(raster: Raster): GridResult {
         },
         straightness: straight,
         pixelPerfect: Math.min(straight.h, straight.v) >= 0.85,
-      },
+      };
+    };
+    const { full } = rect;
+    debug.allLines = { h: hs.lines, v: vs.lines };
+    debug.rectangle = rect;
+    return {
+      ok: true,
+      grid: build(rect.grid),
+      outer: build(full),
+      within: (r) =>
+        build({
+          top: full.top + r.top,
+          bottom: full.top + r.bottom,
+          left: full.left + r.left,
+          right: full.left + r.right,
+        }),
       debug,
     };
   }

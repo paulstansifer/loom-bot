@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { findPuzzle } from './bounds.ts';
 import { findGrid, type Line } from './grid.ts';
 import type { Raster } from './raster.ts';
 import { decode, parseClues, samples } from './samples.ts';
@@ -243,7 +244,7 @@ void describe('findGrid on sample pictures', () => {
       sample.name,
       { todo: KNOWN_FAILURES[sample.name] ?? false },
       async () => {
-        const result = findGrid(await decode(sample.path));
+        const result = findPuzzle(await decode(sample.path));
         assert.ok(result.ok, result.ok ? '' : result.reason);
         assert.deepEqual(
           { rows: result.grid.rows, cols: result.grid.cols },

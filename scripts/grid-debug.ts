@@ -5,6 +5,9 @@
  * - purple: the rectangle of cells found among them (which can include clue boxes),
  * - green: the grid's lines, from `lead` to `trail` (cyan where the line wasn't seen).
  *
+ * The grid is `findPuzzle`'s: from the lines, and then, where there are clues within the
+ * rectangle, from them (which the report says).
+ *
  *   node --experimental-strip-types scripts/grid-debug.ts [DIR | PICTURE...] [--out DIR]
  */
 
@@ -12,7 +15,8 @@ import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 
-import { findGrid, type GridResult, type Line } from '../src/ocr/grid.ts';
+import { findPuzzle } from '../src/ocr/bounds.ts';
+import { type GridResult, type Line } from '../src/ocr/grid.ts';
 import type { Raster } from '../src/ocr/raster.ts';
 import {
   decode,
@@ -39,7 +43,7 @@ let [right, wrong] = [0, 0];
 for (const s of list) {
   const raster = await decode(s.path);
   const start = performance.now();
-  const result = findGrid(raster);
+  const result = findPuzzle(raster);
   const ms = performance.now() - start;
   const found = result.ok
     ? `${result.grid.rows}x${result.grid.cols}`
@@ -57,7 +61,10 @@ for (const s of list) {
   const pitch = result.ok
     ? `pitch ${result.grid.pitch.h.toFixed(2)}/${result.grid.pitch.v.toFixed(2)}` +
       ` straight ${result.grid.straightness.h.toFixed(2)}/${result.grid.straightness.v.toFixed(2)}` +
-      (result.grid.pixelPerfect ? '' : ' (not straight: a photo?)')
+      (result.grid.pixelPerfect ? '' : ' (not straight: a photo?)') +
+      (result.debug.byClues?.used
+        ? ` (from the clues, out of ${result.outer.rows}x${result.outer.cols})`
+        : '')
     : '';
   console.log(
     [

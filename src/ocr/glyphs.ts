@@ -93,8 +93,7 @@ export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
     .map((g) => g.y1 - g.y0)
     .sort((p, q) => p - q);
   const typical = heights[Math.floor(heights.length / 2)] ?? 0;
-  const big = (g: Glyph) =>
-    g.x1 - g.x0 >= MIN_WIDTH * typical && g.y1 - g.y0 >= MIN_HEIGHT * typical;
+  const big = (g: Glyph) => bigEnough(g, typical);
   for (const f of [...columns, ...rows]) {
     f.glyphs = f.glyphs.filter(big);
     f.spare = f.spare.filter(big);
@@ -121,6 +120,13 @@ export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
       )
     ),
   };
+}
+
+/** Whether `g` isn't a sliver or a speck, given the picture's `typical` glyph height. */
+export function bigEnough(g: Glyph, typical: number): boolean {
+  return (
+    g.x1 - g.x0 >= MIN_WIDTH * typical && g.y1 - g.y0 >= MIN_HEIGHT * typical
+  );
 }
 
 /** What's found in a lane: its glyphs, in reading order, and others that might be glyphs too
@@ -214,10 +220,16 @@ function median(v: number[]): number {
 
 /**
  * A strip of the picture in front of a lane, measured along it (`a`, from the picture's edge to
- * the grid) and across it (`c`). A column's lane is `vertical`: `a` is `y`, and `c` is `x` from
- * `start`. A row's is the other way around.
+ * the grid, or from `begin`) and across it (`c`). A column's lane is `vertical`: `a` is `y`, and
+ * `c` is `x` from `start`. A row's is the other way around.
  */
-type Lane = { vertical: boolean; length: number; start: number; width: number };
+export type Lane = {
+  vertical: boolean;
+  begin?: number;
+  length: number;
+  start: number;
+  width: number;
+};
 
 /** A connected blob of ink, in a lane's coordinates. */
 type Blob = {
@@ -232,11 +244,23 @@ type Blob = {
   struck?: boolean;
 };
 
+/** Every glyph-shaped blob in `lane`, however faint, and wherever it is along it. (For telling
+ * where clues are, in a strip across both clues and grid.) */
+export function stripGlyphs(
+  raster: Raster,
+  lane: Lane,
+  pitch: number
+): Glyph[] {
+  const { glyphs, spare } = laneGlyphs(raster, lane, pitch);
+  return [...glyphs, ...spare];
+}
+
 function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
   const { length, width } = lane;
   if (length <= 0 || width <= 2) return { glyphs: [], spare: [] };
+  const begin = lane.begin ?? 0;
   const xy = (a: number, c: number): [number, number] =>
-    lane.vertical ? [lane.start + c, a] : [a, lane.start + c];
+    lane.vertical ? [lane.start + c, begin + a] : [begin + a, lane.start + c];
   const pixel = (a: number, c: number): number => {
     const [x, y] = xy(a, c);
     return (y * raster.width + x) * 3;

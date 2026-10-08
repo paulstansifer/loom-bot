@@ -75,6 +75,30 @@ two filled cells. The steps:
    reported as `pixelPerfect`. It's only a hint: a photo of a screen can be nearly straight,
    and still give the right grid.
 
+Where the clues are in cells of their own that carry on the grid's lines, including the corner
+between them (sample 19), or on graph paper ruled at the grid's spacing (sample 12, with clues
+on all four sides), no line stops, so the lines alone can't tell where the grid is. So
+`findPuzzle` (in `bounds.ts`) goes on to look at where the clues are, within the biggest
+rectangle (`outer`):
+
+- Every lane has at least one clue, if only a 0, pushed up against the grid. So the cell just
+  outside the grid's edge has a digit in nearly every lane, and no cell inside ever does.
+- `digitCells` looks for glyphs in each cell by itself, inside its lines, so that nothing joins
+  up across cells. (Done along whole rows of cells instead, lines crossing out sample 15's clues
+  joined them to the grid's border.) The glyphs are grouped and named as for the clues (see
+  below), and marks crossing out cells are named "x", not digits.
+- `boundsByDigits` tries every rectangle, counting the lanes with a digit just outside each
+  edge, less twice the digits inside. Ties go to the bigger rectangle, so a side with no clues
+  goes as far as the lines. (Sample 19's last two columns have their nearest clue cells crossed
+  out.)
+- It's only used if at least 60% of the lanes on one side have a digit just outside. Otherwise,
+  a few stray digit-like things in a picture (or a photo) make a small rectangle that fits
+  them. Sample 15's row clues are in long boxes whose lines carry on the grid's horizontal
+  lines, but with no lines between the clues, so they're cut up cell by cell, and too few read
+  as digits to count. The lines already tell where its grid is.
+
+This adds 20–250 ms.
+
 Things that didn't work, so as not to try them again:
 
 - Choosing between lattices by the size of the rectangle they give. A third of the true spacing
@@ -108,20 +132,17 @@ seen and was placed where the lattice says. It decodes with `sharp`, a dev-only 
 - A background with a grid of its own, at a spacing that the puzzle's is a multiple of (sample
   10). The background's lattice outweighs the puzzle's, so no grid is found. Not worth solving for
   now.
-- Clue areas drawn as part of one big grid, including the corner between them (sample 19). No
-  line clearly stops, so there's nothing to tell where the grid starts, except that the clue
-  cells are gray.
 - Clue boxes on only one side. The grid's own lines don't carry on into the other side either,
   so the boxes look like part of the grid.
-- Photos of paper (4, 6, 8, 11, 12, 13), which are out of scope. They give wrong grids, and
+- Photos of paper (4, 6, 8, 11, 13), which are out of scope. They give wrong grids, and
   only some are flagged as not `pixelPerfect`. Reading the clues will need a way to reject them,
   such as clues that don't add up.
 
-## Reading the clues (`src/ocr/glyphs.ts`, `cluster.ts`, `numbers.ts`)
+## Reading the clues (`src/ocr/glyphs.ts`, `cluster.ts`, `names.ts`, `numbers.ts`)
 
-This is an experiment so far: it finds glyphs, groups them by look, and groups digits into
-numbers, but doesn't yet name the groups in the bot itself, or check the result against the
-grid.
+This is an experiment so far: it finds glyphs, groups them by look, names the groups, and groups
+digits into numbers, but nothing yet puts those together into clues outside
+`scripts/glyph-debug.ts`, or checks the result against the grid.
 
 `findGlyphs(raster, grid)` finds each lane's glyphs, in reading order. A column's clues are above
 it, between its two lines carried on upward, and a row's are to its left.
@@ -188,10 +209,17 @@ Otherwise, it's `reread.rs`'s rule: whichever of the two measures splits more cl
 and far. There, numbers must be at least 1.35 times as far apart as digits, middle to middle.
 Sample 23's are only about 1.25 times as far apart, and that's what the columns' pairs are for.
 
-Naming the groups is only in `scripts/glyph-debug.ts` so far. Each group's average look is
-compared with the digits drawn in about 20 installed fonts (`scripts/digit-templates.ts`, using
-`sharp`), by shape and a little by proportions. For the bot, those templates would need to be
-rendered once into a data file.
+`names.ts` names each group's average look by the nearest template, by shape and a little by
+proportions. The templates are the digits drawn in about 20 installed fonts, and marks that
+cross out a cell (X, x, ×, ✕, named "x"), rendered with `sharp` by
+`scripts/digit-templates.ts` into `src/ocr/templates.ts`. Run it again to change them:
+
+```
+node --experimental-strip-types scripts/digit-templates.ts
+```
+
+Each template's 16×16 shape is a string of 64 levels, about 145 KB in all. (Prettier is told
+to leave the file alone.)
 
 ```
 node --experimental-strip-types scripts/glyph-debug.ts [DIR | PICTURE...] [--out DIR]
@@ -219,6 +247,10 @@ in both, the picture showed the reading was right and the file was wrong.
 
 ### Known failures
 
+- Samples 12 and 19's clues (their grids are found right, but their `.clues` files are
+  unchecked). Sample 12's pixel font isn't like any of the templates' (its "1" has a flag, like
+  a "7"), and sample 19's digits are tiny, and its "6"s read as "0"s. Their row and column
+  totals don't agree, which says so.
 - Sample 3's middle panel, and the spotlit corner of its row clues: gray digits with dark drop
   shadows on gradients, nearly the background's brightness. Five lanes are missing digits, and
   two have a digit named wrong.
