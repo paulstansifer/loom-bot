@@ -117,10 +117,11 @@ seen and was placed where the lattice says. It decodes with `sharp`, a dev-only 
   only some are flagged as not `pixelPerfect`. Reading the clues will need a way to reject them,
   such as clues that don't add up.
 
-## Reading the clues (`src/ocr/glyphs.ts`, `src/ocr/cluster.ts`)
+## Reading the clues (`src/ocr/glyphs.ts`, `cluster.ts`, `numbers.ts`)
 
-This is an experiment so far: it finds and groups the glyphs, but doesn't yet group digits into
-numbers, name the groups in the bot itself, or check the result against the grid.
+This is an experiment so far: it finds glyphs, groups them by look, and groups digits into
+numbers, but doesn't yet name the groups in the bot itself, or check the result against the
+grid.
 
 `findGlyphs(raster, grid)` finds each lane's glyphs, in reading order. A column's clues are above
 it, between its two lines carried on upward, and a row's are to its left.
@@ -146,6 +147,27 @@ contrast, is stretched to 16×16. Two glyphs are compared by the average differe
 their sizes clearly differ. A glyph joins the nearest group within 0.12 of its average look.
 Dimmed and crossed-out digits mostly join the plain ones.
 
+`numbers` groups each lane's glyphs into numbers. A column's clues are stacked, a number to a
+line of text. A row's are in one line, split where the digits are far apart, as in `ocr-clues`'
+`reread.rs`. What's far apart is decided from all the rows together. What to measure depends on
+the typeface. In most, the space between digits stays the same, since a "1" is narrow. In some,
+every digit takes the same width, and it's the distance from one digit's middle to the next
+that stays the same. (In sample 23, "10" has as wide a gap as "4 7", since its "1" sits in a
+lot of space.)
+
+Two digits side by side in a column's clues are certainly one number, so where the columns have
+any multi-digit numbers, they decide it:
+- The measure is the one those pairs agree on more closely: as their digits' widths vary, the
+  typeface keeps one of them the same.
+- The threshold is at the biggest jump (as a ratio) between one row distance and the next,
+  above the farthest of those pairs. Not at the split that best separates the two groups'
+  averages: a row's digits can be a pixel further apart than a column's (sample 3), and that
+  split can fall between them.
+
+Otherwise, it's `reread.rs`'s rule: whichever of the two measures splits more cleanly into near
+and far. There, numbers must be at least 1.35 times as far apart as digits, middle to middle.
+Sample 23's are only about 1.25 times as far apart, and that's what the columns' pairs are for.
+
 Naming the groups is only in `scripts/glyph-debug.ts` so far. Each group's average look is
 compared with the digits drawn in about 20 installed fonts (`scripts/digit-templates.ts`, using
 `sharp`), by shape and a little by proportions. For the bot, those templates would need to be
@@ -156,13 +178,14 @@ node --experimental-strip-types scripts/glyph-debug.ts [DIR | PICTURE...] [--out
   [--threshold T] [--verbose]
 ```
 
-checks this against the `.clues` files. A lane with as many glyphs as its clues have digits
+checks this against the `.clues` files. It reads each lane whole, and compares it with the clues.
+Separately, a lane with as many glyphs as its clues have digits
 gives each glyph its digit. Then a group should hold only one digit, and its template should
 name that digit. `--out` draws the glyphs (`NAME-glyphs.png`: green in a lane with the right
 count, red otherwise) and the groups (`NAME-groups.png`). On the checked samples whose grid is
 found:
 
-- 414 of 440 lanes have the right number of glyphs.
+- 414 of 440 lanes are read exactly right: all of those that have the right number of glyphs.
 - No group mixes two digits, at a threshold of 0.12. From 0.14, a few do, and at 0.2, 54
   glyphs are in the wrong group. Below 0.12, digits split into more groups.
 - Every one of the 1256 glyphs in those lanes is in a group named right. The nearest
@@ -174,5 +197,5 @@ found:
 - Sample 3's middle panel: gray digits with dark drop shadows on a gradient, nearly the
   background's brightness. The shadow and the digit come apart, and some digits are missed
   (18 of the 26 bad lanes).
-- Two-digit numbers drawn condensed (sample 21) are a font of their own. They group and name
-  fine, but nothing yet reads "10" as one number.
+- Sample 21's four bad lanes have glyphs to spare (not looked into yet). Its condensed two-digit
+  numbers are a font of their own, but where they're found right, they read right.

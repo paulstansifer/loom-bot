@@ -25,6 +25,7 @@ import {
 } from '../src/ocr/cluster.ts';
 import { findGlyphs, type Glyph } from '../src/ocr/glyphs.ts';
 import { findGrid } from '../src/ocr/grid.ts';
+import { numbers } from '../src/ocr/numbers.ts';
 import { templates, type Template } from './digit-templates.ts';
 import type { Raster } from '../src/ocr/raster.ts';
 import {
@@ -73,7 +74,14 @@ const list: Sample[] = (inputs.length > 0 ? inputs : [SAMPLES_DIR]).flatMap(
 );
 if (out) mkdirSync(out, { recursive: true });
 
-const totals = { lanes: 0, lanesOk: 0, glyphs: 0, wrong: 0, named: 0 };
+const totals = {
+  lanes: 0,
+  lanesOk: 0,
+  glyphs: 0,
+  wrong: 0,
+  named: 0,
+  read: 0,
+};
 for (const s of list) {
   const clues = s.clues;
   if (!clues?.checked) continue;
@@ -95,16 +103,11 @@ for (const s of list) {
   const glyphs: { glyph: Glyph; digit: string | undefined; lane: string }[] =
     [];
   let lanesOk = 0;
-  const mismatches: string[] = [];
   const addLanes = (kind: string, found: Glyph[][], expected: number[][]) => {
     found.forEach((lane, i) => {
       const digits = expected[i]!.join('');
       const ok = lane.length === digits.length;
       if (ok) lanesOk++;
-      else
-        mismatches.push(
-          `${kind} ${i}: expected ${expected[i]!.join(' ')}, found ${lane.length} glyphs`
-        );
       lane.forEach((glyph, k) =>
         glyphs.push({
           glyph,
@@ -172,6 +175,33 @@ for (const s of list) {
     }
   });
 
+  // Each lane read whole: its glyphs grouped into numbers, each digit as its group is named. (No
+  // clues reads the same as a single 0.)
+  const index = new Map(glyphs.map((g, i) => [g.glyph, i]));
+  const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.template.digit;
+  const asText = (clues: number[]) =>
+    clues.length === 0 ? '0' : clues.join(' ');
+  const laneNumbers = numbers(lanes);
+  let read = 0;
+  const misread: string[] = [];
+  const readLanes = (
+    kind: string,
+    found: Glyph[][][],
+    expected: number[][]
+  ) => {
+    found.forEach((lane, i) => {
+      const text = asText(lane.map((n) => Number(n.map(digitOf).join(''))));
+      if (text === asText(expected[i]!)) read++;
+      else
+        misread.push(
+          `${kind} ${i}: expected ${asText(expected[i]!)}, read ${text}`
+        );
+    });
+  };
+  readLanes('column', laneNumbers.columns, clues.columnClues);
+  readLanes('row', laneNumbers.rows, clues.rowClues);
+
+  totals.read += read;
   totals.lanes += laneCount;
   totals.lanesOk += lanesOk;
   totals.glyphs += labeled;
@@ -180,6 +210,7 @@ for (const s of list) {
   console.log(
     [
       s.name.padEnd(4),
+      `read ${read}/${laneCount}`.padEnd(12),
       `lanes ${lanesOk}/${laneCount}`.padEnd(13),
       `glyphs ${glyphs.length}`.padEnd(11),
       `groups ${groupCount}`.padEnd(10),
@@ -194,7 +225,7 @@ for (const s of list) {
     ].join(' ')
   );
   if (verbose) {
-    for (const m of mismatches) console.log(`     ${m}`);
+    for (const m of misread) console.log(`     ${m}`);
     groupDigits.forEach((digits, k) => {
       const label = digits.map(([d, n]) => `${d}x${n}`).join(' ') || '?';
       const { template, d } = names[k]!;
@@ -220,7 +251,8 @@ for (const s of list) {
   }
 }
 console.log(
-  `lanes with the right number of glyphs: ${totals.lanesOk}/${totals.lanes}; ` +
+  `lanes read right: ${totals.read}/${totals.lanes}; ` +
+    `with the right number of glyphs: ${totals.lanesOk}/${totals.lanes}; ` +
     `glyphs in a group of another digit: ${totals.wrong}/${totals.glyphs}; ` +
     `named right: ${totals.named}/${totals.glyphs}`
 );

@@ -171,7 +171,10 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Glyph[] {
   }
 
   const glyphs = kept.map((b) => glyph(raster, lane, b, fine, diff, xy));
-  return readingOrder(glyphs);
+  // A row's clues are in one line, even if some (say, two-digit numbers, condensed) are smaller.
+  return lane.vertical
+    ? textLines(glyphs).flat()
+    : glyphs.sort((p, q) => p.x0 - q.x0);
 }
 
 /**
@@ -517,9 +520,9 @@ function glyph(
   };
 }
 
-/** `glyphs` in reading order: in lines (of glyphs whose heights overlap by at least half),
- * top to bottom, each left to right. */
-function readingOrder(glyphs: Glyph[]): Glyph[] {
+/** `glyphs` in lines of text (of glyphs whose heights overlap by at least half), top to bottom,
+ * each left to right. */
+export function textLines(glyphs: Glyph[]): Glyph[][] {
   const byTop = [...glyphs].sort((p, q) => p.y0 - q.y0);
   const lines: Glyph[][] = [];
   for (const g of byTop) {
@@ -532,5 +535,5 @@ function readingOrder(glyphs: Glyph[]): Glyph[] {
     if (line) line.push(g);
     else lines.push([g]);
   }
-  return lines.flatMap((l) => l.sort((p, q) => p.x0 - q.x0));
+  return lines.map((l) => l.sort((p, q) => p.x0 - q.x0));
 }
