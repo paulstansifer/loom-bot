@@ -13,6 +13,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": true,
     "strict": true,
     "isolatedModules": true,
     "esModuleInterop": true,
@@ -25,6 +26,6 @@
     "outDir": "dist/types",
     "tsBuildInfoFile": "dist/types/tsconfig.tsbuildinfo"
   },
-  "include": ["src/**/*", "vite.config.ts"],
+  "include": ["src/**/*", "scripts/**/*", "vite.config.ts"],
   "exclude": []
 }
