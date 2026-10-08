@@ -46,6 +46,12 @@ const INK_FRACTION = 0.4;
 const INK_COLORS_APART = 80;
 /** How wide a line of another color crossing a glyph can be, and still be seen through. */
 const BRIDGE = 4;
+/** The narrowest a glyph can be, and the shortest, as fractions of the picture's typical glyph
+ * height. (A "1" is never a sliver: the narrowest seen is 0.3 of its height, and no digit is
+ * shorter than 0.87 of the typical one. Slivers are bits of lines and boxes, or of a digit's
+ * shadow.) */
+const MIN_WIDTH = 0.2;
+const MIN_HEIGHT = 0.6;
 const DIRECTIONS = [
   [0, 1],
   [1, 0],
@@ -77,7 +83,17 @@ export function findGlyphs(raster: Raster, grid: Grid): LaneGlyphs {
     };
     rows.push(laneGlyphs(raster, lane, pitch));
   }
-  return { columns, rows };
+  const heights = [...columns, ...rows]
+    .flat()
+    .map((g) => g.y1 - g.y0)
+    .sort((p, q) => p - q);
+  const typical = heights[Math.floor(heights.length / 2)] ?? 0;
+  const big = (g: Glyph) =>
+    g.x1 - g.x0 >= MIN_WIDTH * typical && g.y1 - g.y0 >= MIN_HEIGHT * typical;
+  return {
+    columns: columns.map((lane) => lane.filter(big)),
+    rows: rows.map((lane) => lane.filter(big)),
+  };
 }
 
 /**

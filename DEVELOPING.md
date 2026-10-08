@@ -141,6 +141,10 @@ it, between its two lines carried on upward, and a row's are to its left.
    Pixels of another color with that color on both sides, within 4 px, count as that color too:
    they're where a line crosses a stroke. Those glyphs are flagged `struck`.
 4. Outward from the grid, glyphs are kept until there's a gap of more than a cell.
+5. Slivers and specks are dropped: anything narrower than 0.2 of the picture's median glyph
+   height, or shorter than 0.6 of it. They're bits of lines and boxes, or of a digit's shadow.
+   No typeface in the samples has a "1" narrower than 0.3 of its height, or a digit shorter
+   than 0.87 of the median.
 
 `cluster` groups a picture's glyphs by how they look. Each glyph's ink, as a fraction of its
 contrast, is stretched to 16×16. Two glyphs are compared by the average difference, unless
@@ -185,17 +189,18 @@ name that digit. `--out` draws the glyphs (`NAME-glyphs.png`: green in a lane wi
 count, red otherwise) and the groups (`NAME-groups.png`). On the checked samples whose grid is
 found:
 
-- 414 of 440 lanes are read exactly right: all of those that have the right number of glyphs.
-- No group mixes two digits, at a threshold of 0.12. From 0.14, a few do, and at 0.2, 54
-  glyphs are in the wrong group. Below 0.12, digits split into more groups.
-- Every one of the 1256 glyphs in those lanes is in a group named right. The nearest
-  template of another digit is at least 0.026 further away.
+- 420 of 440 lanes are read exactly right, and 425 have the right number of glyphs.
+- No group mixes two digits, at a threshold of 0.12. At 0.14, one glyph is in the wrong group,
+  and at 0.2, 56 are. Below 0.12, digits split into more groups.
+- 1298 of the 1309 glyphs in those lanes are in a group named right. The 11 that aren't are
+  10 of sample 3's shadowed digits and one of sample 21's. Elsewhere, the nearest template of
+  another digit is at least 0.026 further away.
 - It takes 10–210 ms a picture.
 
 ### Known failures
 
 - Sample 3's middle panel: gray digits with dark drop shadows on a gradient, nearly the
-  background's brightness. The shadow and the digit come apart, and some digits are missed
-  (18 of the 26 bad lanes).
-- Sample 21's four bad lanes have glyphs to spare (not looked into yet). Its condensed two-digit
+  background's brightness. The shadow and the digit come apart, some digits are missed, and
+  some are named wrong (15 of the 20 bad lanes).
+- Sample 21's three bad lanes (not looked into yet). Its condensed two-digit
   numbers are a font of their own, but where they're found right, they read right.
