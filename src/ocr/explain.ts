@@ -14,13 +14,42 @@
  * rows' and columns' totals agreeing. Each group changed costs a little, so that groups aren't
  * changed for no reason (taking every group as crossed out would agree with a finished grid
  * perfectly).
+ *
+ * `readWithGrid` puts it all together: the clues as read, the grid's state, these second
+ * thoughts, and the clues that couldn't be read worked out from the grid.
  */
 
 import { blackAndWhite } from '../solve/puzzle.ts';
-import { contradicted, type State, stateCells } from './cells.ts';
+import { contradicted, readCells, type State, stateCells } from './cells.ts';
+import type { Grid } from './grid.ts';
 import type { Naming } from './names.ts';
-import { cluesNamed, type Reading } from './read.ts';
+import type { Raster } from './raster.ts';
+import { cluesNamed, readClues, type Reading } from './read.ts';
 import { repair } from './repair.ts';
+
+/**
+ * The clues read from `raster`, with second thoughts from the grid's state, and those that
+ * couldn't be read worked out from it; the grid's state; and how many clues were worked out.
+ * `timed` runs each step, to time it.
+ */
+export function readWithGrid(
+  raster: Raster,
+  grid: Grid,
+  timed: <T>(what: string, f: () => T) => T = (_, f) => f()
+): { reading: Reading; states: State[]; filled: number } {
+  const read = timed('clues', () => readClues(raster, grid));
+  const { states } = timed('cells', () => readCells(raster, grid));
+  const explained = timed(
+    'groups',
+    () => explainGroups(read, states, grid.cols).reading
+  );
+  const fixed = repair(explained.columns, explained.rows, states, grid.cols);
+  return {
+    reading: { ...explained, columns: fixed.columns, rows: fixed.rows },
+    states,
+    filled: fixed.filled,
+  };
+}
 
 /** What taking a group as crossed out costs, against a lane that doesn't make sense, and what
  * renaming one costs. (Renaming costs less: if it's as good, it's better to have read a clue than

@@ -10,21 +10,10 @@
  */
 
 import { findPuzzle } from '../ocr/bounds.ts';
-import {
-  cellsText,
-  contradicted,
-  readCells,
-  stateCells,
-} from '../ocr/cells.ts';
+import { cellsText, contradicted, stateCells } from '../ocr/cells.ts';
+import { readWithGrid } from '../ocr/explain.ts';
 import type { Raster } from '../ocr/raster.ts';
-import {
-  cluesText,
-  consistency,
-  readClues,
-  type Reading,
-} from '../ocr/read.ts';
-import { repair } from '../ocr/repair.ts';
-import { explainGroups } from '../ocr/explain.ts';
+import { cluesText, consistency, type Reading } from '../ocr/read.ts';
 import { blankGrid } from '../solve/grid.ts';
 import { blackAndWhite } from '../solve/puzzle.ts';
 import { guidance, guidanceToMessage } from './guidance.ts';
@@ -68,23 +57,7 @@ export function replyTo(raster: Raster): Reply {
       timings
     );
   const { grid } = found;
-  const read = timed('clues', () => readClues(raster, grid));
-  const progress = timed('cells', () => readCells(raster, grid));
-  const explained = timed(
-    'groups',
-    () => explainGroups(read, progress.states, grid.cols).reading
-  );
-  const fixed = repair(
-    explained.columns,
-    explained.rows,
-    progress.states,
-    grid.cols
-  );
-  const reading: Reading = {
-    ...explained,
-    columns: fixed.columns,
-    rows: fixed.rows,
-  };
+  const { reading, states, filled } = readWithGrid(raster, grid, timed);
   const check = consistency(reading);
   const facts = [
     `Picture: ${picture}. Grid: ${grid.cols}x${grid.rows}` +
@@ -109,14 +82,14 @@ export function replyTo(raster: Raster): Reply {
     return debug("the clues read aren't consistent", facts, timings, reading);
 
   const puzzle = blackAndWhite(reading.rows, reading.columns);
-  const cells = stateCells(progress.states);
+  const cells = stateCells(states);
   const broken = contradicted(puzzle, cells).length;
   const believed =
     grid.pixelPerfect && broken <= MOST_CONTRADICTED * puzzle.lanes.length;
   facts.push(
     `Progress read (${believed ? 'used' : 'not used'}; ${broken} lanes contradict it; ` +
-      `${fixed.filled} unreadable clues worked out from it):\n\n${cellsText(
-        progress.states,
+      `${filled} unreadable clues worked out from it):\n\n${cellsText(
+        states,
         grid.cols
       )
         .split('\n')

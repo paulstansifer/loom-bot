@@ -3,9 +3,15 @@
  * they look, and checks that against the clues: a lane with as many glyphs as its clues have
  * digits gives each glyph its digit, and then a group should have only one digit in it.
  *
+ * That's the glyphs by themselves. The bot reads the clues with the grid's help too (`explain.ts`:
+ * crossed-out clues worked out from the grid, misnamed groups renamed), at the usual threshold:
+ * "with grid" is how many lanes that gets right, followed by how its clues solve (or that they're
+ * inconsistent, so there's no point trying).
+ *
  * A picture whose clues haven't been checked (or that has none) is read without a score: it says
  * whether the clues read are consistent (the rows' and columns' totals agree, and each lane's
- * clues fit in it), which says whether the reading is worth checking by hand.
+ * clues fit in it), which says whether the reading is worth checking by hand, and how the clues
+ * read with the grid's help solve.
  *
  * With `--out DIR`, draws, for each picture, the glyphs found (`NAME-glyphs.png`: green in a lane
  * with the right number of them, red otherwise), and each group in a row (`NAME-groups.png`,
@@ -29,11 +35,19 @@ import {
 } from '../src/ocr/cluster.ts';
 import { findGlyphs, type Glyph } from '../src/ocr/glyphs.ts';
 import { findPuzzle } from '../src/ocr/bounds.ts';
+import { readWithGrid } from '../src/ocr/explain.ts';
 import type { Grid } from '../src/ocr/grid.ts';
 import { name } from '../src/ocr/names.ts';
 import { numbers } from '../src/ocr/numbers.ts';
-import { cluesText, consistency, readClues } from '../src/ocr/read.ts';
+import {
+  cluesText,
+  consistency,
+  readClues,
+  type Reading,
+} from '../src/ocr/read.ts';
 import type { Raster } from '../src/ocr/raster.ts';
+import { blackAndWhite } from '../src/solve/puzzle.ts';
+import { solve } from '../src/solve/solve.ts';
 import {
   decode,
   sample,
@@ -67,6 +81,9 @@ const totals = {
   wrong: 0,
   named: 0,
   read: 0,
+  gridRead: 0,
+  solved: 0,
+  pictures: 0,
 };
 for (const s of list) {
   const clues = s.clues;
@@ -183,7 +200,25 @@ for (const s of list) {
   readLanes('column', laneNumbers.columns, clues.columnClues);
   readLanes('row', laneNumbers.rows, clues.rowClues);
 
+  // The same, with the grid's help, as the bot reads it.
+  const helped = withGrid(raster, result.grid);
+  let gridRead = 0;
+  const gridMisread: string[] = [];
+  const compare = (kind: string, found: number[][], expected: number[][]) => {
+    found.forEach((lane, i) => {
+      const [text, want] = [cluesText(lane), cluesText(expected[i]!)];
+      if (text === want) gridRead++;
+      else gridMisread.push(`${kind} ${i}: expected ${want}, read ${text}`);
+    });
+  };
+  compare('column', helped.reading.columns, clues.columnClues);
+  compare('row', helped.reading.rows, clues.rowClues);
+
   totals.read += read;
+  totals.gridRead += gridRead;
+  totals.pictures++;
+  if (helped.solved === 'line-logic' || helped.solved === 'search')
+    totals.solved++;
   totals.lanes += laneCount;
   totals.lanesOk += lanesOk;
   totals.glyphs += labeled;
@@ -193,6 +228,7 @@ for (const s of list) {
     [
       s.name.padEnd(4),
       `read ${read}/${laneCount}`.padEnd(12),
+      `with grid ${gridRead}/${laneCount} ${helped.solved}`.padEnd(29),
       `lanes ${lanesOk}/${laneCount}`.padEnd(13),
       `glyphs ${glyphs.length}`.padEnd(11),
       `groups ${groupCount}`.padEnd(10),
@@ -208,6 +244,7 @@ for (const s of list) {
   );
   if (verbose) {
     for (const m of misread) console.log(`     ${m}`);
+    for (const m of gridMisread) console.log(`     with grid: ${m}`);
     groupDigits.forEach((digits, k) => {
       const label = digits.map(([d, n]) => `${d}x${n}`).join(' ') || '?';
       const { name: guess, d } = names[k]!;
@@ -233,11 +270,26 @@ for (const s of list) {
   }
 }
 console.log(
-  `lanes read right: ${totals.read}/${totals.lanes}; ` +
+  `lanes read right: ${totals.read}/${totals.lanes} ` +
+    `(with grid: ${totals.gridRead}/${totals.lanes}); ` +
     `with the right number of glyphs: ${totals.lanesOk}/${totals.lanes}; ` +
     `glyphs in a group of another digit: ${totals.wrong}/${totals.glyphs}; ` +
-    `named right: ${totals.named}/${totals.glyphs}`
+    `named right: ${totals.named}/${totals.glyphs}; ` +
+    `uniquely solvable with grid: ${totals.solved}/${totals.pictures} pictures`
 );
+
+/** The clues read with the grid's help, as the bot reads them, and how they solve (or
+ * "inconsistent", if their totals don't agree, or some don't fit). */
+function withGrid(
+  raster: Raster,
+  grid: Grid
+): { reading: Reading; solved: string } {
+  const { reading } = readWithGrid(raster, grid);
+  const solved = consistency(reading).consistent
+    ? solve(blackAndWhite(reading.rows, reading.columns)).kind
+    : 'inconsistent';
+  return { reading, solved };
+}
 
 /** `looks` grouped, each group's members, and each group named by the nearest template to its
  * average look. */
@@ -275,6 +327,7 @@ async function unscored(s: Sample, raster: Raster, grid: Grid) {
       ? ''
       : ` (its file says ${s.clues.rows}x${s.clues.cols})`
     : ' (no file)';
+  const helped = withGrid(raster, grid);
   console.log(
     [
       s.name.padEnd(4),
@@ -286,6 +339,7 @@ async function unscored(s: Sample, raster: Raster, grid: Grid) {
       `groups ${members.length}`.padEnd(10),
       `margin>=${margin.toFixed(3)}`.padEnd(15),
       (consistent ? 'consistent: worth checking' : 'inconsistent') +
+        `; with grid ${helped.solved}` +
         (grid.pixelPerfect ? '' : ', not straight (a photo?)') +
         file,
     ].join(' ')

@@ -250,9 +250,16 @@ checks this against the `.clues` files. It reads each lane whole, and compares i
 Separately, a lane with as many glyphs as its clues have digits
 gives each glyph its digit. Then a group should hold only one digit, and its template should
 name that digit. `--out` draws the glyphs (`NAME-glyphs.png`: green in a lane with the right
-count, red otherwise) and the groups (`NAME-groups.png`). It doesn't use the grid's state, so
-samples 12 and 19, whose crossed-out clues can only be worked out from the grid (see below),
-score badly. On the other checked samples whose grid is found:
+count, red otherwise) and the groups (`NAME-groups.png`).
+
+All that is the glyphs by themselves, without the grid's state, so samples 12 and 19, whose
+crossed-out clues can only be worked out from the grid (see "Second thoughts", below), score
+badly. "with grid" is the reading the bot gets (`readWithGrid` in `explain.ts`): how many lanes
+it gets right, and how its clues solve (`line-logic`, `search`, `ambiguous`, …, or
+`inconsistent`, not tried). With the grid's help, 738 of the 745 lanes of the checked samples
+whose grid is found are read right, all but sample 3's, and every one of those samples but 3
+and 7 is uniquely solvable (7's clues have two solutions). Without it, on the checked samples
+but 12 and 19:
 
 - 627 of 635 lanes are read exactly right, and 630 have the right number of glyphs. Every
   sample but 3 and 24 is read entirely right.
@@ -269,8 +276,9 @@ in both, the picture showed the reading was right and the file was wrong.
 A picture whose `.clues` file is unchecked is read without a score. Instead, it says whether
 what it read is consistent: the rows' and columns' totals agree, every lane's clues fit in it,
 and no more than a fifth of the lanes are empty. That says which files are worth checking by
-hand. With `--out`, it writes what it read to `NAME.clues` there, to start from. Of the unchecked
-samples, only 18 reads consistently. Where its reading differed from its file (written by
+hand. It also says how the clues read with the grid's help solve. With `--out`, it writes what
+it read to `NAME.clues` there, to start from. Of the unchecked samples, only 18 reads
+consistently, and with the grid's help, its clues solve by line logic. Where its reading differed from its file (written by
 `ocr-clues`, whose totals don't agree), the picture agreed with the reading.
 
 ### Known failures
