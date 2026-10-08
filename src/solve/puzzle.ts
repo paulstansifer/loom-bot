@@ -105,3 +105,10 @@ export function puzzleFromPicture(colors: number, picture: number[][]): Puzzle {
     )
   );
 }
+
+/** A black-and-white puzzle, from its rows' and columns' runs. */
+export function blackAndWhite(rows: number[][], columns: number[][]): Puzzle {
+  const clues = (counts: number[]) =>
+    counts.map((count) => ({ color: 1, count }));
+  return makePuzzle(2, rows.map(clues), columns.map(clues));
+}

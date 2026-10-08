@@ -77,6 +77,52 @@ git -C ~/src/number-loom diff 47d7cb5 -- src/solve src/puzzle.rs
   clone test, and a soundness test over random colored pictures (in place of the triangular
   ones).
 
+## `conprop_picker.rs` → `picker.ts`
+
+- A pick is `{ cell, color }`. Internally, picks are numbered `cell * colors + color`, which is
+  also how `vsids` (a `Float64Array`) and `PickScores` (`PickTable`) are indexed.
+- The two `BinaryHeap<(Score, usize)>`s are index arrays, sorted once per rescore, best first,
+  with ties going to the higher index (the heap's pop order), each with a cursor.
+- `StdRng` + `shuffle` is `seededRandom` (mulberry32, seed 0) and Fisher–Yates. That's not
+  Rust's sequence, so the search guesses in a different order, and its guess counts differ.
+  Answers don't.
+- Scores are `f64`, not `f32`.
+- `Picker::score_lane` is the exported `scoreLane`, which takes the `PickScores` to add to. The
+  `color_ranges` handling is gone, since a clue is one color.
+- Tests: all ported, except the two Triano ones.
+
+## `conprop.rs` → `search.ts`
+
+- `ConpropState` holds the `SolveState` itself (as `state`), not a context. The fields the tests
+  poke at are public.
+- `Nogood { not_all_true, current_false_count }` is `{ notAllTrue: Map, falseCount }`.
+  `deduction` and `inform` are free functions. `deduction` returns
+  `'contradiction' | [cell, within] | undefined`. The assertion that every literal holds when
+  it's contradicted is dropped.
+- `Conflict` is `{ lane } | { nogood }`. `propagate` returns `true`/`false` or a `Conflict`.
+- `resolve_to_uip`'s `BTreeMap<trail index, literal>` is a `Map<cell, {trailIdx, within}>`
+  (there was never more than one per cell), with a scan for the newest two.
+- The `panic!`s and `assert!`s that guard the search's invariants are thrown `Error`s. The
+  `debug_assert!`s are dropped.
+- `vsids` is a dense `Float64Array` (see above).
+- `conprop_solve` is `conpropSolve(puzzle, { timeLimitMs })`, and `search(puzzle, stalled, …)`
+  starts from a state line logic has already stalled on. They return
+  `{ grid, cellsLeft, guesses } | 'no-solution' | 'out-of-time'`. The time limit is checked
+  between guesses, in place of `conprop_solve_in_background`'s terminate channel (and there's no
+  progress channel, or yielding). It's synchronous.
+- Dropped: `trace_backtrack` output and `stop_at_first_solution`.
+- Tests: all ported, except the triddler and background-progress ones. New: out of time.
+
+## `guidance.rs`' `find_answer` → `solve.ts`
+
+- `solve(puzzle, { timeLimitMs = 2000 })` gives `kind` (`'line-logic' | 'search' | 'ambiguous'
+  | 'out-of-time'`, as `Solved`) and each cell's color (-1 for unknown), or
+  `{ kind: 'no-solution' }` where Rust gave an error. It doesn't run line logic twice, as
+  `find_answer` does.
+- Tests: `puzzle.rs`' `a_clue_only_puzzle_that_needs_a_guess_still_gets_its_picture`. New:
+  random colored pictures (whatever's known must match the picture), and the sample pictures'
+  checked clues, where they're available.
+
 ## Not (yet) ported
 
 - **The line cache** (`LineCache`, keyed on clues plus lane contents). In JS, the key would be a
