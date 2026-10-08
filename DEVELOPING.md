@@ -155,7 +155,11 @@ it, between its two lines carried on upward, and a row's are to its left.
    different (by more than 24). At the top of sample 23's clue box, without this, the white
    above made the box's tan count as ink, and it swallowed a faint "9". Not shorter lengths:
    over a third of a cell, the commonest color can be a bold digit's. And not when they're
-   only a little different: then, in sample 3's gradients, faint digits disappeared.
+   only a little different: then, in sample 3's gradients, faint digits disappeared. Even over a
+   cell, it can be a digit's on a textured background, whose color is spread over many shades:
+   sample 12's crossed-out "10"s fill their cells, at the end of the lane, and were lost. So a
+   color to either side also has to be the commonest over two cells (as another background
+   would be), and there have to be two cells' length to that side.
 2. Blobs are the 8-connected pixels that differ from the background even faintly. Each blob is
    then cut again, at 40% of its own contrast. That way a dimmed clue is cut the same way as the
    rest, and faint fringes don't join neighboring digits. With one fixed threshold, dimmed
@@ -255,14 +259,15 @@ samples, only 18 reads consistently. Where its reading differed from its file (w
 ### Known failures
 
 - Samples 12 and 19's clues (their grids are found right, but their `.clues` files are
-  unchecked). Sample 12's pixel font isn't like any of the templates' (its "1" has a flag, like
-  a "7"), and sample 19's digits are tiny, and its "6"s read as "0"s. Their row and column
-  totals don't agree, which says so.
+  unchecked). Sample 19's digits are tiny, and its "6"s read as "0"s. Its row and column totals
+  don't agree, which says so. Sample 12's pixel font's digits read badly by themselves (a "2"
+  as an "8"), and its crossed-out ones (with a flag on the upper left, in the digits' own color)
+  worse; but the bot reads it (see "Crossed out in the digits' color", below).
 - Sample 3's middle panel, and the spotlit corner of its row clues: gray digits with dark drop
   shadows on gradients, nearly the background's brightness. Five lanes are missing digits, and
   two have a digit named wrong.
 
-## Reading the grid's state (`src/ocr/cells.ts`, `repair.ts`)
+## Reading the grid's state (`src/ocr/cells.ts`, `repair.ts`, `strike.ts`)
 
 `readCells(raster, grid)` says which cells are filled, crossed out or undecided, without the
 clues (which is good, since a well-solved puzzle's are crossed out). It's a port of number-loom's
@@ -299,8 +304,8 @@ Not handled:
 - A cell's "crossed" and "undecided" backgrounds differing (sample 14's crossed cell is white on
   gray): it's the groups' colors that decide, so it works there, but only because the one white
   cell is too few to be a family.
-- Checking the groups' meanings against the clues, trying other meanings for them when many
-  lanes contradict. For now the bot only stops using the progress if over a quarter of the
+- Checking the cell groups' meanings against the clues, trying other meanings for them when
+  many lanes contradict. For now the bot only stops using the progress if over a quarter of the
   lanes contradict it, or the picture isn't straight (`reply.ts`).
 
 `repair` (`repairLane`, `repair`; a port of `repair.rs`) works out clues that couldn't be read
@@ -308,8 +313,25 @@ Not handled:
 clues are its blocks; otherwise finished blocks are matched with clues from each end, then the
 middle ones in order; and a last blotted clue is whatever makes the totals agree (see its
 header comment for the details, and its tests). Not ported: dimmed clues, and backup readings.
-Today's clue reading rarely leaves a `NaN` (struck-out digits are read through the strike), so
-on the samples this changes nothing yet; it's there for crossed-out clues that aren't legible.
+Struck-out digits in another color are read through the strike (`glyphs.ts`), so they don't
+need this.
+
+### Crossed out in the digits' color (`strike.ts`)
+
+Sample 12's app crosses out a clue with a flag on its upper left, in the digits' own color, so
+`glyphs.ts` can't tell. A crossed-out digit looks different from the plain one, so it's a
+group of its own, but its name is likely wrong (a struck "1" is named "4", a struck "2" or "3"
+"8"). Two-digit ones, joined by their flag, are named "x", and so are `NaN` already.
+
+`explainStrikes` takes a group as crossed out (`NaN`, for `repair` to work out from the grid)
+where that makes the clues make more sense. Greedily, one group at a time, it takes whichever
+lowers the most: the lanes that don't fit (or are still `NaN` after `repair`), plus the lanes
+the grid contradicts, plus 2 if the totals don't agree, plus 0.5 per group taken. (That last
+part is so a group isn't taken for no reason: against a finished grid, taking every group would
+agree perfectly.) On sample 12 that gives clues that are consistent, that the grid doesn't
+contradict, and that line logic solves; the lanes I checked against the picture were right.
+It changes nothing on the checked samples. Since 258 of sample 12's clues are copied from the
+grid, any mistakes the person made in those lanes are copied into them, unseen.
 
 ## Solving (`src/solve/`)
 

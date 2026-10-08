@@ -28,6 +28,8 @@ export type Reading = {
    */
   columns: number[][];
   rows: number[][];
+  /** Each lane's numbers, as the glyphs (by index into `glyphs`) they're made of. */
+  numberGlyphs: { columns: number[][][]; rows: number[][][] };
 };
 
 export function readClues(
@@ -47,19 +49,36 @@ export function readClues(
   const names = members.map((m) => name(meanLook(m.map((i) => looks[i]!))));
 
   const index = new Map(glyphs.map((g, i) => [g, i]));
-  const digitOf = (g: Glyph) => names[groups[index.get(g)!]!]!.name;
   const laneNumbers = numbers(lanes);
-  const read = (found: Glyph[][][]) =>
-    found.map((lane) => lane.map((n) => Number(n.map(digitOf).join(''))));
+  const indices = (found: Glyph[][][]) =>
+    found.map((lane) => lane.map((n) => n.map((g) => index.get(g)!)));
+  const numberGlyphs = {
+    columns: indices(laneNumbers.columns),
+    rows: indices(laneNumbers.rows),
+  };
   return {
     grid,
     glyphs,
     groups,
     members,
     names,
-    columns: read(laneNumbers.columns),
-    rows: read(laneNumbers.rows),
+    ...cluesNamed(numberGlyphs, groups, names),
+    numberGlyphs,
   };
+}
+
+/** Each lane's clues, with each group of glyphs named as `names` says. A number with a glyph
+ * named "x" in it is `NaN`. */
+export function cluesNamed(
+  numberGlyphs: Reading['numberGlyphs'],
+  groups: number[],
+  names: Naming[]
+): { columns: number[][]; rows: number[][] } {
+  const read = (found: number[][][]) =>
+    found.map((lane) =>
+      lane.map((n) => Number(n.map((i) => names[groups[i]!]!.name).join('')))
+    );
+  return { columns: read(numberGlyphs.columns), rows: read(numberGlyphs.rows) };
 }
 
 /** Whether a reading makes sense, without knowing what it should have been. */

@@ -3,8 +3,8 @@
  * guidance, if the clues read make sense, followed by what was read and how long it took; and
  * otherwise, what went wrong.
  *
- * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read
- * are worked out from it (`repair.ts`). If the progress contradicts the clues in many lanes, it
+ * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read,
+ * or seem to be crossed out (`strike.ts`), are worked out from it (`repair.ts`). If the progress contradicts the clues in many lanes, it
  * was probably misread, and the guidance is for someone who hasn't started.
  */
 
@@ -23,6 +23,7 @@ import {
   type Reading,
 } from '../ocr/read.ts';
 import { repair } from '../ocr/repair.ts';
+import { explainStrikes } from '../ocr/strike.ts';
 import { blankGrid } from '../solve/grid.ts';
 import { blackAndWhite } from '../solve/puzzle.ts';
 import { guidance, guidanceToMessage } from './guidance.ts';
@@ -68,9 +69,18 @@ export function replyTo(raster: Raster): Reply {
   const { grid } = found;
   const read = timed('clues', () => readClues(raster, grid));
   const progress = timed('cells', () => readCells(raster, grid));
-  const fixed = repair(read.columns, read.rows, progress.states, grid.cols);
+  const explained = timed(
+    'strikes',
+    () => explainStrikes(read, progress.states, grid.cols).reading
+  );
+  const fixed = repair(
+    explained.columns,
+    explained.rows,
+    progress.states,
+    grid.cols
+  );
   const reading: Reading = {
-    ...read,
+    ...explained,
     columns: fixed.columns,
     rows: fixed.rows,
   };

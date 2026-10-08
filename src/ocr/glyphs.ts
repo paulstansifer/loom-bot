@@ -355,7 +355,10 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
  * of a clue box: there, over a cell's length around it, the other one can be commoner. Only if
  * they're clearly different, since in a gradient, a faint digit can be nearly the same as the
  * background a little way off. And nothing shorter than a cell: over a third of one, the
- * commonest color can be a bold digit's.)
+ * commonest color can be a bold digit's. Even over a cell, it can be, on a textured background,
+ * whose color is spread over many shades, beside a bold "10" filling a cell of its own (sample
+ * 12, whose crossed-out "10"s were lost that way). So the color to either side has to be the
+ * commonest over two cells, too, as another background would be.)
  */
 function backgrounds(
   raster: Raster,
@@ -417,9 +420,18 @@ function backgrounds(
   const colors: RGB[][] = [];
   for (let k = 0; k < blocks; k++) {
     const around = over(k - 1, k + 1);
-    const sides = [over(k - 2, k), over(k, k + 2)].filter(
-      (c) => colorDiff(c, around) > BACKGROUND_CHANGE
-    );
+    // (Only where there's room for that: at the end of a lane, both windows would be cut short
+    // to the same few pixels of digit.)
+    const sides: RGB[] = [];
+    const side = (c: RGB, longer: RGB) => {
+      if (
+        colorDiff(c, around) > BACKGROUND_CHANGE &&
+        colorDiff(c, longer) <= BACKGROUND_CHANGE
+      )
+        sides.push(c);
+    };
+    if (k >= 5) side(over(k - 2, k), over(k - 5, k));
+    if (k + 5 < blocks) side(over(k, k + 2), over(k, k + 5));
     colors.push([around, ...sides]);
   }
   return Array.from(
