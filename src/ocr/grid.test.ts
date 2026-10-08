@@ -232,7 +232,7 @@ void describe('findGrid on drawn grids', () => {
 // The sample pictures, if they're here (see `samples.ts`). For each with checked clues, the grid
 // must be the size the clues say.
 const KNOWN_FAILURES: Record<string, string> = {
-  '8': 'a photo of a paper puzzle',
+  '8': 'drawn by hand, in a drawing app: its lines wobble',
   '10': 'a background with a grid of its own, which outweighs the puzzle',
 };
 

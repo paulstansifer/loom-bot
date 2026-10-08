@@ -134,9 +134,9 @@ seen and was placed where the lattice says. It decodes with `sharp`, a dev-only 
   now.
 - Clue boxes on only one side. The grid's own lines don't carry on into the other side either,
   so the boxes look like part of the grid.
-- Photos of paper (4, 6, 8, 11, 13), which are out of scope. They give wrong grids, and
-  only some are flagged as not `pixelPerfect`. Reading the clues will need a way to reject them,
-  such as clues that don't add up.
+- Photos of paper (4, 6, 11, 13). They give wrong grids, and only some are flagged as not
+  `pixelPerfect`. They have a pipeline of their own (see "Photos of paper", below).
+- Sample 8, a puzzle drawn by hand in a drawing app, whose lines wobble.
 
 ## Reading the clues (`src/ocr/glyphs.ts`, `cluster.ts`, `names.ts`, `numbers.ts`)
 
@@ -367,6 +367,87 @@ solves; the lanes I checked against the picture were right. It renames one group
 samples 12, 19 and 24. Of the other checked samples, it only changes sample 3 (a known
 failure), where it takes its "9"s as crossed out. Since 258 of sample 12's clues are copied from the grid, any mistakes the person made in
 those lanes are copied into them, unseen.
+
+## Photos of paper (`src/ocr/paper/`)
+
+Photos of printed puzzles look nothing like screenshots, so they get their own pipeline, with
+its own settings: nothing in it is shared with the screenshot one, whose settings are left
+alone. So far it only finds the grid; nothing reads cells or clues from it yet, and the bot
+doesn't use it.
+
+Which kind a picture is will be decided by which pipeline works: the screenshot one first,
+unchanged, and this one only if that finds no grid, or reads clues that don't make sense. (Telling
+them apart beforehand didn't work. Screenshots' flat areas (pixels the same as their neighbors)
+overlap with photos', since WebP smooths photos and some apps have textured backgrounds. And
+sample 14, a photo of a tablet's screen, is as crooked as some paper photos by `straightness`,
+but the screenshot pipeline reads it fine.)
+
+`findPaperGrid(raster)` (`mesh.ts`) works from the heavy lines every fifth line (and around the
+border), which are darker than anything the person draws but a heavily scribbled fill:
+
+1. `inkMap` (`ink.ts`): how dark each point is, against the paper nearby (the brightest point
+   within about 50 px), which evens out shadows and vignetting. Darkness is the *brightest*
+   channel's: print is black, so it's dark in every channel, while colored marker is bright in
+   one, so red, pink or yellow fills fade, and the lines show through them. Pictures are first
+   shrunk to at most 1600 px a side, so the settings in pixels mean the same everywhere.
+2. `crossings` (`lines.ts`): the picture is cut into 24 strips across the lines. In each, the ink
+   is summed along the slant that makes its lines sharpest, which can change from one end of the
+   strip to the other (perspective makes lines converge). Each line is a narrow ridge in that
+   profile: higher than the ink 4 px to *both* sides, which leaves out fills. A crossing's
+   heaviness is its height against the median of the 4 crossings each side.
+3. `chains`: crossings linked from strip to strip, each to the nearest one where the slants say
+   it should be (within 4 px a strip), skipping up to 2 strips where a fill hides the line.
+4. Heavy lines: chains at least 1.5 times as heavy as their neighbors (the median, along the
+   chain), merged where they lie along each other, and fitted with a cubic `y = f(x)`. They have
+   to be unbroken: darker than 5 px either side over 80% of their length. Thin lines have to be
+   over 70%. Rows of digits (sample 6's row clues line up into columns) and dashed lines (sample
+   11's clue boxes) are about half.
+5. `cellsBetween`: how many cells there are between two heavy lines, from the thin lines between
+   them: the most cells, up to 10, for which 60% of the evenly spaced places where the lines
+   between would be have one within 0.2 of a cell. Twice the right number puts half its lines
+   where there are none. Rows of digits don't count as lines, so a clue box isn't a block.
+6. `gridLines`: from each heavy line, out each way to the next heavy line 5 cells on (or 10, one
+   missed), and at either end, to one less than 5 cells on, if it's well supported (a grid that
+   isn't a multiple of 5). The start that gathers the most support (crossings on its lines) wins:
+   a scribbled fill can make a thin line look heavy (1wvi8zy, below), and starting there goes
+   nowhere. At least a block each way.
+7. The mesh: where each chosen heavy line meets each other one. `point(u, v)` is a Coons patch in
+   each block, so it follows the heavy lines along all four sides, and cuts each block evenly.
+   Past the grid, it carries on along the outermost block's curves, to where the clues are.
+
+On the photos it finds 6's grid (45x35, as printed on it), 11's (30x30, likewise) and 13's
+(45x35, counted), and 10x15 in one of the Rust bot's downloads
+(`~/src/number-loom/bot/1wvi8zy`), and the mesh follows their lines to within a pixel or two.
+On a synthetic grid turned 4°, foreshortened and bent (`mesh.test.ts`), every point of the mesh
+is within 0.05 cells of the truth, where a straight grid between its corners is off by 0.75. It
+takes about 0.6 s, mostly finding each strip's slant.
+
+```
+node --experimental-strip-types scripts/paper-debug.ts [DIR | PICTURE...] [--out DIR]
+```
+
+says what size grid it finds in each picture, and with `--out`, draws its lines (gray), its
+heavy lines (orange), the ones chosen (red), and the cells (green, and dashed past the grid).
+
+Not handled:
+
+- Sample 4: its lines are pale gray, and the heavy ones are barely darker. (It's a color
+  puzzle, too.)
+- 1wv65fw (in the Rust bot's downloads): a puzzle printed with no lines, just alternately
+  shaded cells.
+- Screenshots. It does badly on them, which is fine: they're read the other way.
+
+Things that didn't work, so as not to try them again:
+
+- Telling heavy lines by a fixed strength: lighting and focus vary too much across a photo.
+  Compared with the lines beside them, they're about twice as strong.
+- One slope per strip. Where the lines converge, the ones far from the strip's slope smear out:
+  13's right border, which leans the other way from its left one, was missed.
+- Narrower strips (48), for the same reason: chains broke up more than they gained.
+- Quadratic curves: sample 6's right side waves, and half its crossings were left out of the fit.
+- Counting cells by the median gap between lines: scribbled fills add ridges between lines.
+- Darker than either side by 0.08, for unbroken lines: thin lines under marker are only a little
+  darker than it.
 
 ## Solving (`src/solve/`)
 
