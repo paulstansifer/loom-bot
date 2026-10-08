@@ -81,16 +81,21 @@ export type GuidanceReport = {
   startUrl?: string;
   /** Like `startUrl`, but with the OP's progress (with the errors erased) filled in. */
   progressUrl?: string;
+  /** Whether the puzzle was read from a photo of paper, straightened (dewarped) to read it,
+   * rather than from a screenshot. */
+  dewarped: boolean;
 };
 
 /**
  * Guidance for someone who's gotten as far as `grid` in `puzzle`, or `'no-solution'` if the
- * clues have none. `palette` is how the puzzle's colors look, for the links.
+ * clues have none. `palette` is how the puzzle's colors look, for the links. `dewarped` says
+ * whether the puzzle was read from a photo of paper, straightened.
  */
 export function guidance(
   puzzle: Puzzle,
   grid: Uint32Array,
-  palette: ColorInfo[] = bwPalette()
+  palette: ColorInfo[] = bwPalette(),
+  dewarped = false
 ): GuidanceReport | 'no-solution' {
   const found = solve(puzzle, { timeLimitMs: SEARCH_TIME_MS });
   if (found.kind === 'no-solution') return found.kind;
@@ -112,6 +117,7 @@ export function guidance(
     filledCells: 0,
     errors: [],
     next: { kind: 'done' },
+    dewarped,
   };
   if (allKnown) report.startUrl = shareUrl({ solution });
 

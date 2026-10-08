@@ -218,3 +218,13 @@ void test('the message', () => {
   );
   assert.ok(!guidanceToMessage(p, g, 0).includes('This is a bot'));
 });
+
+void test('says whether the puzzle was read from a straightened photo', () => {
+  const p = puzzle(SPIRAL);
+  const blank = progress(SPIRAL.map((r) => '.'.repeat(r.length)));
+  const fromScreenshot = guidance(p, blank);
+  const fromPaper = guidance(p, blank, undefined, true);
+  assert.ok(fromScreenshot !== 'no-solution' && fromPaper !== 'no-solution');
+  assert.equal(fromScreenshot.dewarped, false);
+  assert.equal(fromPaper.dewarped, true);
+});

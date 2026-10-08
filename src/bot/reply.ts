@@ -72,7 +72,7 @@ export function replyTo(raster: Raster): Reply {
     timings.push(`${what} ${(performance.now() - start).toFixed(0)} ms`);
     return result;
   };
-  const picture = `Picture: ${raster.width}x${raster.height}.`;
+  const picture = `Picture: ${raster.width}x${raster.height} picture.`;
 
   // As a screenshot, and if that doesn't work, as a photo of paper.
   const shot = asScreenshot(raster, timed);
@@ -90,14 +90,19 @@ export function replyTo(raster: Raster): Reply {
             return shot;
           }
           if (typeof photo !== 'string') {
-            photo.facts.unshift(`As a screenshot: no grid found (${shot}).`);
+            photo.facts.splice(
+              1,
+              0,
+              `As a screenshot: no grid found (${shot}).`
+            );
             return photo;
           }
           return `no grid found: ${shot}; as a photo of paper, ${photo}`;
         })();
   if (typeof attempt === 'string') return debug(attempt, [picture], timings);
   const { kind, grid, reading, states, filled, facts, problem } = attempt;
-  facts.unshift(picture);
+  // (The first fact is about the grid; the picture goes in front of it, as one line.)
+  facts[0] = `${picture} ${facts[0]}`;
   if (problem) return debug(problem, facts, timings, reading);
 
   const puzzle = blackAndWhite(reading.rows, reading.columns);
@@ -118,7 +123,12 @@ export function replyTo(raster: Raster): Reply {
         .join('\n')}`
   );
   const g = timed('guidance', () =>
-    guidance(puzzle, believed ? cells : blankGrid(puzzle))
+    guidance(
+      puzzle,
+      believed ? cells : blankGrid(puzzle),
+      undefined,
+      kind === 'paper'
+    )
   );
   if (g === 'no-solution')
     return debug('the clues read have no solution', facts, timings, reading);
