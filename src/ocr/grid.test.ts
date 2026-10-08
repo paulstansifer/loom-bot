@@ -260,6 +260,8 @@ void test('parseClues', () => {
     {
       rows: 1,
       cols: 2,
+      columnClues: [[1, 2], [3]],
+      rowClues: [[4]],
       checked: true,
     }
   );

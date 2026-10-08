@@ -22,18 +22,24 @@ const PICTURE = /\.(webp|png|jpe?g)$/i;
 export type Sample = {
   name: string;
   path: string;
-  /** What its `.clues` file says, if it has one: the size of the grid (from the number of clue
-   * lines), and whether that's been checked. */
-  clues?: { rows: number; cols: number; checked: boolean };
+  /** What its `.clues` file says, if it has one. */
+  clues?: Clues;
+};
+
+export type Clues = {
+  /** The size of the grid (from the number of clue lines). */
+  rows: number;
+  cols: number;
+  /** Each column's clues, top to bottom, and each row's, left to right. */
+  columnClues: number[][];
+  rowClues: number[][];
+  /** Whether they've been checked by hand. */
+  checked: boolean;
 };
 
 /** The format: comment lines starting with `#`, then `columns`, a line per column, `rows`, and a
  * line per row. */
-export function parseClues(text: string): {
-  rows: number;
-  cols: number;
-  checked: boolean;
-} {
+export function parseClues(text: string): Clues {
   const lines = text.split(/\r?\n/).map((l) => l.trimEnd());
   const content = lines.filter((l) => !l.startsWith('#'));
   const columns = content.indexOf('columns');
@@ -41,11 +47,18 @@ export function parseClues(text: string): {
   if (columns < 0 || rows < columns) {
     throw new Error('expected a `columns` line, and then a `rows` line');
   }
-  const count = (from: number, to: number) =>
-    content.slice(from, to).filter((l) => l.trim() !== '').length;
+  const lanes = (from: number, to: number) =>
+    content
+      .slice(from, to)
+      .filter((l) => l.trim() !== '')
+      .map((l) => l.trim().split(/\s+/).map(Number));
+  const columnClues = lanes(columns + 1, rows);
+  const rowClues = lanes(rows + 1, content.length);
   return {
-    rows: count(rows + 1, content.length),
-    cols: count(columns + 1, rows),
+    rows: rowClues.length,
+    cols: columnClues.length,
+    columnClues,
+    rowClues,
     checked: !lines.some((l) => l.startsWith('# UNCHECKED')),
   };
 }

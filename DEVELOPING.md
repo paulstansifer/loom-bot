@@ -3,7 +3,8 @@
 A Reddit (Devvit) bot that reads a nonogram from a screenshot and replies about it. It started
 from Devvit's mod-tool template (the "Mop" commands in `src/core`, `src/routes` are the
 template's). It has to run in Node.js and answer in under 30 seconds, which rules out the
-`ocr-clues` pipeline in `~/src/number-loom/src/ocr-clue-bot/` (see its `DEVELOPING.md`). So
+`ocr-clues` pipeline in `~/src/number-loom/src/ocr-clue-bot/` (see its `DEVELOPING.md`). Devvit
+doesn't allow WebAssembly either, so tesseract.js, `ocrs` and onnxruntime are out. So
 the plan is to find the grid first, from its pixel-perfect lines, and let that guide reading the
 clues.
 
@@ -115,3 +116,63 @@ seen and was placed where the lattice says. It decodes with `sharp`, a dev-only 
 - Photos of paper (4, 6, 8, 11, 12, 13), which are out of scope. They give wrong grids, and
   only some are flagged as not `pixelPerfect`. Reading the clues will need a way to reject them,
   such as clues that don't add up.
+
+## Reading the clues (`src/ocr/glyphs.ts`, `src/ocr/cluster.ts`)
+
+This is an experiment so far: it finds and groups the glyphs, but doesn't yet group digits into
+numbers, name the groups in the bot itself, or check the result against the grid.
+
+`findGlyphs(raster, grid)` finds each lane's glyphs, in reading order. A column's clues are above
+it, between its two lines carried on upward, and a row's are to its left.
+
+1. The background, at each point along the lane, is the commonest color in the lane's middle
+   half, over about a cell's length. (Only the middle, since the lane's sides can be the gaps
+   between clue boxes.)
+2. Blobs are the 8-connected pixels that differ from the background even faintly. Each blob is
+   then cut again, at 40% of its own contrast. That way a dimmed clue is cut the same way as the
+   rest, and faint fringes don't join neighboring digits. With one fixed threshold, dimmed
+   digits broke into pieces, and their outlines came out a pixel tighter, so they didn't group
+   with the undimmed ones.
+3. A blob that can't be a glyph (it touches the lane's sides, or is too long) may be digits
+   crossed out with lines of another color, which join them to each other and to the sides.
+   Its colors are split three ways by k-means (two ways split by brightness, putting the dark
+   red lines in with the black digits). Whichever color makes the most glyph-shaped blobs wins.
+   Pixels of another color with that color on both sides, within 4 px, count as that color too:
+   they're where a line crosses a stroke. Those glyphs are flagged `struck`.
+4. Outward from the grid, glyphs are kept until there's a gap of more than a cell.
+
+`cluster` groups a picture's glyphs by how they look. Each glyph's ink, as a fraction of its
+contrast, is stretched to 16×16. Two glyphs are compared by the average difference, unless
+their sizes clearly differ. A glyph joins the nearest group within 0.12 of its average look.
+Dimmed and crossed-out digits mostly join the plain ones.
+
+Naming the groups is only in `scripts/glyph-debug.ts` so far. Each group's average look is
+compared with the digits drawn in about 20 installed fonts (`scripts/digit-templates.ts`, using
+`sharp`), by shape and a little by proportions. For the bot, those templates would need to be
+rendered once into a data file.
+
+```
+node --experimental-strip-types scripts/glyph-debug.ts [DIR | PICTURE...] [--out DIR]
+  [--threshold T] [--verbose]
+```
+
+checks this against the `.clues` files. A lane with as many glyphs as its clues have digits
+gives each glyph its digit. Then a group should hold only one digit, and its template should
+name that digit. `--out` draws the glyphs (`NAME-glyphs.png`: green in a lane with the right
+count, red otherwise) and the groups (`NAME-groups.png`). On the checked samples whose grid is
+found:
+
+- 414 of 440 lanes have the right number of glyphs.
+- No group mixes two digits, at a threshold of 0.12. From 0.14, a few do, and at 0.2, 54
+  glyphs are in the wrong group. Below 0.12, digits split into more groups.
+- Every one of the 1256 glyphs in those lanes is in a group named right. The nearest
+  template of another digit is at least 0.026 further away.
+- It takes 10–210 ms a picture.
+
+### Known failures
+
+- Sample 3's middle panel: gray digits with dark drop shadows on a gradient, nearly the
+  background's brightness. The shadow and the digit come apart, and some digits are missed
+  (18 of the 26 bad lanes).
+- Two-digit numbers drawn condensed (sample 21) are a font of their own. They group and name
+  fine, but nothing yet reads "10" as one number.
