@@ -71,15 +71,15 @@ export type GuidanceReport = {
   solved: Solved;
   /** What's known of the answer: all of it, unless `solved` says otherwise. */
   answer: Uint32Array;
-  /** How many cells the person filled in. */
+  /** How many cells the OP filled in. */
   filledCells: number;
-  /** The cells the person has got wrong. */
+  /** The cells the OP has got wrong. */
   errors: number[];
   /** Where to go from here, once the errors are erased. */
   next: Next;
   /** A link that opens the puzzle in the web app, to solve from the beginning. */
   startUrl?: string;
-  /** Like `startUrl`, but with the person's progress (with the errors erased) filled in. */
+  /** Like `startUrl`, but with the OP's progress (with the errors erased) filled in. */
   progressUrl?: string;
 };
 
@@ -246,6 +246,24 @@ function laneLabel(puzzle: Puzzle, lane: number): string {
   return lane < puzzle.height ? `R${lane + 1}` : `C${lane - puzzle.height + 1}`;
 }
 
+/** `3 cells`, `1 cell`. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/** At most this many of a list are shown. */
+const SHOWN = 5;
+
+/** A Markdown bullet list. */
+function bullets(items: string[]): string {
+  return items.map((item) => ` * ${item}\n`).join('');
+}
+
+/** Reddit spoiler markup. */
+function spoiler(text: string): string {
+  return `>!${text}!<`;
+}
+
 /**
  * Emits a Markdown message about the puzzle. `repairs` is how many clues couldn't be read, and
  * were worked out from the grid instead. `operator` is the Reddit username (without the `u/`) of
@@ -260,8 +278,6 @@ export function guidanceToMessage(
   repairs: number,
   operator?: string
 ): string {
-  let res = '';
-
   const likeWhat = {
     ambiguous: ' with multiple solutions.',
     'line-logic': ', solvable with line logic.',
@@ -270,105 +286,95 @@ export function guidanceToMessage(
   }[g.solved];
   // Fortunately, numbers <80 that start with a vowel sound aren't a multiple of five, so we're unlikely to
   // need to say "an".
-  res += `This looks like a ${puz.width}x${puz.height} puzzle${likeWhat} `;
-  if (repairs > 0) {
-    const pl = repairs === 1 ? '' : 's';
-    res += `(OCR failed for ${repairs} clue${pl}, but they could be extracted from the grid.) `;
-  }
-  if (g.errors.length > 0) {
-    const pl = g.errors.length === 1 ? '' : 's';
-    res += '\n'; // Want to start this on its own line.
-    res += `If I read the grid correctly, there are ${g.errors.length} mistake${pl} to remove: >!`;
-    res += g.errors
-      .slice(0, 5)
-      .map((error) => coordLabel(puz, error))
-      .join(', ');
-    if (g.errors.length > 5) res += `, and ${g.errors.length - 5} more`;
-    res += '!<\n';
-  } else if (g.next.kind === 'done') {
-    res += {
-      'line-logic': 'You solved it correctly!\n',
-      search: 'You solved it correctly!!\n',
-      ambiguous: 'You found one of its solutions!\n',
-      'out-of-time': 'Nonetheless, you solved it!\n',
-    }[g.solved];
-  } else if (g.filledCells > 0) {
-    const percent = ((g.filledCells / g.answer.length) * 100).toFixed(1);
-    if (g.solved === 'line-logic' || g.solved === 'search') {
-      res += `You've solved ${percent}% of the puzzle correctly.\n`;
-    } else {
-      res += `You've filled in ${percent}% of the puzzle.\n`;
+  const intro = `This looks like a ${puz.width}x${puz.height} puzzle${likeWhat} `;
+  const ocr =
+    repairs > 0
+      ? `(OCR failed for ${count(repairs, 'clue')}, but ${repairs == 1 ? 'it' : 'they'} could be extracted from the grid.) `
+      : '';
+
+  const progress = (): string => {
+    if (g.errors.length > 0) {
+      const shown = g.errors.slice(0, SHOWN).map((e) => coordLabel(puz, e));
+      const more =
+        g.errors.length > SHOWN ? `, and ${g.errors.length - SHOWN} more` : '';
+      // (Want to start this on its own line.)
+      return `\nIf I read the grid correctly, there are ${count(g.errors.length, 'mistake')} to remove: ${spoiler(shown.join(', ') + more)}\n`;
     }
-  }
-  res += '\n\n';
+    if (g.next.kind === 'done') {
+      return `${
+        {
+          'line-logic': 'You solved it correctly!',
+          search: 'You solved it correctly!!',
+          ambiguous: 'You found one of its solutions!',
+          'out-of-time': 'Nonetheless, you solved it!',
+        }[g.solved]
+      }\n`;
+    }
+    if (g.filledCells > 0) {
+      const percent = ((g.filledCells / g.answer.length) * 100).toFixed(1);
+      return g.solved === 'line-logic' || g.solved === 'search'
+        ? `You've solved ${percent}% of the puzzle correctly.\n`
+        : `You've filled in ${percent}% of the puzzle.\n`;
+    }
+    return '';
+  };
 
-  if (g.startUrl) {
-    res += `[Start from scratch](${g.startUrl})`;
-    if (g.progressUrl) res += ` or [continue from here](${g.progressUrl})`;
-    res += ' in [Number Loom](https://paul-stansifer.itch.io/number-loom).\n\n';
-  }
+  const links = g.startUrl
+    ? `[Start from scratch](${g.startUrl})` +
+      (g.progressUrl ? ` or [continue from here](${g.progressUrl})` : '') +
+      ' in [Number Loom](https://paul-stansifer.itch.io/number-loom).\n\n'
+    : '';
 
+  // (Without an operator to name, there's no sign-off.)
+  const signOff = operator
+    ? `\n\n^(This is a bot, operated by [u/${operator}](https://www.reddit.com/user/${operator}/))`
+    : '';
+
+  return `${intro}${ocr}${progress()}\n\n${links}${nextSteps(puz, g)}${signOff}`;
+}
+
+/** The part of the message about where to go from here. */
+function nextSteps(puz: Puzzle, g: GuidanceReport): string {
   const next = g.next;
   switch (next.kind) {
     case 'done':
-      break; // handled above
+      return ''; // handled above
     case 'lines': {
-      const lhes = next.hints;
-      if (lhes.length === 1) {
-        res += 'There is one lane ';
-      } else {
-        res += `There are ${lhes.length} lanes `;
-      }
-      res += 'you can progress with line logic';
-      if (next.partial) {
-        res += ' (but only if you cross-reference color information)';
-      }
-      if (lhes.length > 5) {
-        res += " (here's the first five)";
-      }
-      res += ':\n\n';
-      for (const lh of lhes.slice(0, 5)) {
-        const pl = lh.resolves.length === 1 ? '' : 's';
-        res += ` * >!${laneLabel(puz, lh.lane)}, which can resolve ${lh.resolves.length} cell${pl}!<\n`;
-      }
-      break;
+      const n = next.hints.length;
+      const subject = n === 1 ? 'There is one lane' : `There are ${n} lanes`;
+      const crossRef = next.partial
+        ? ' (but only if you cross-reference color information)'
+        : '';
+      const first = n > SHOWN ? " (here's the first five)" : '';
+      const hints = next.hints
+        .slice(0, SHOWN)
+        .map((lh) =>
+          spoiler(
+            `${laneLabel(puz, lh.lane)}, which can resolve ${count(lh.resolves.length, 'cell')}`
+          )
+        );
+      return `${subject} you can progress with line logic${crossRef}${first}:\n\n${bullets(hints)}`;
     }
     case 'contradictions': {
-      const cons = next.guesses;
-      if (cons.length === 1) {
-        res += 'There is at least one cell ';
-      } else {
-        res += `There are at least ${cons.length} cells `;
-      }
-      res += 'that can be guessed and disproven:\n\n';
-      for (const { cell, color } of cons) {
-        const loc = coordLabel(puz, cell);
-        const colorStr = color === BACKGROUND ? 'background' : 'colored-in'; // currently, we don't handle multicolor puzzles
-        res += ` * >!${loc} can't be ${colorStr}!<\n`;
-      }
-      break;
+      const n = next.guesses.length;
+      const subject =
+        n === 1
+          ? 'There is at least one cell'
+          : `There are at least ${n} cells`;
+      const guesses = next.guesses.map(({ cell, color }) => {
+        // (Currently, we don't handle multicolor puzzles.)
+        const colorStr = color === BACKGROUND ? 'background' : 'colored-in';
+        return spoiler(`${coordLabel(puz, cell)} can't be ${colorStr}`);
+      });
+      return `${subject} that can be guessed and disproven:\n\n${bullets(guesses)}`;
     }
     case 'stuck':
-      if (g.solved === 'search') {
-        res +=
-          "This puzzle probably requires nested guesses at this point. It's quite hard!\n";
-      } else {
-        res += "There's also no obvious way to make progress.\n";
-      }
-      break;
-    case 'broken':
-      res +=
-        'The current grid is already contradictory in the following lanes:\n\n';
-      for (const badLane of next.lanes.slice(0, 5)) {
-        res += ` * ${laneLabel(puz, badLane)}\n`;
-      }
-      break;
+      return g.solved === 'search'
+        ? "This puzzle probably requires nested guesses at this point. It's quite hard!\n"
+        : "There's also no obvious way to make progress.\n";
+    case 'broken': {
+      const lanes = next.lanes.slice(0, SHOWN).map((l) => laneLabel(puz, l));
+      return `The current grid is already contradictory in the following lanes:\n\n${bullets(lanes)}`;
+    }
   }
-
-  // (Without an operator to name, there's no sign-off.)
-  if (operator) {
-    res += `\n\n^(This is a bot, operated by [u/${operator}](https://www.reddit.com/user/${operator}/))`;
-  }
-
-  return res;
 }
