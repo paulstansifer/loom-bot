@@ -462,14 +462,32 @@ differ from the screenshots' in:
   what's left of its dashes, break into pieces that outnumbered the digits, so the typical
   height was a piece's, none were dropped, and pieces side by side in the columns' clues were
   taken for two-digit numbers, which made every row one number.
+- `struckUnread`: a digit found crossed out (by `glyphs.ts`, as for screenshots) isn't read,
+  but worked out from the grid (`repair.ts`). A pencil stroke across a printed digit hides it,
+  where an app's line in another color only crosses it, and the struck digits in sample 6 were
+  named wrong as often as not (a "3" as a "7", a "6" as a "4").
+- `renameGroups`: off. Taking a group as crossed out still is (`explain.ts`), but renaming one
+  to its second-nearest template made too much make sense: in sample 6, every "2" became a "3",
+  and every "5" a "6".
+- `readCells`: `readPaperCells` (`paper/cells.ts`), not `readCells`. On paper, a cell is filled
+  however the person likes (pencil shading, marker, a zigzag scribble), and crossed out with an
+  X of any size, or a dot, so the cells aren't grouped by how they look, but by how much of
+  each (leaving out 0.15 of it at each side, for the lines) is inked, in the darkest channel (so
+  that colored marker counts): under 3% is undecided, and the rest is split by Otsu's method,
+  less crossed out, more filled. Where they divide differs: 13's fat red X's cover up to 65%,
+  and 1wvi8zy's pink scribbled fills as little as 45%; 1wvi8zy's tiny X's are 5 to 10%. If the
+  two sides' averages are under 0.3 apart, they're all one or the other.
 
 How the photos read (the `.clues` files of all of them are unchecked, so this is by eye):
 
-- 13 (finished, in red marker): consistent, and solves by line logic with the grid's help. The
-  clues alone are close (the totals differ by 9).
-- 1wvi8zy: every clue read right; its clues have two solutions. Its cells are read roughly
-  (pink X's aren't seen).
-- 6: inconsistent: the clues the person crossed out in pencil are misread.
+- 13 (finished, in red marker): consistent, and solves by line logic with the grid's help (the
+  groups taken as crossed out are worked out from its finished grid). The clues alone are close
+  (the totals differ by 2).
+- 1wvi8zy: every clue read right; its clues have two solutions. Its cells are read right but
+  for two in its curled corner.
+- 6: its rows 1 to 40 are read right, and its cells agree with all its rows' clues. But rows 41
+  to 43's crossed-out clues can't be worked out (their rows aren't finished), and a few of its
+  columns' crossed-out digits weren't found crossed out, and are misread.
 - 11: inconsistent: nearly every clue is crossed out in pen, and most are misread.
 
 It takes 2 to 5 s a photo, mostly straightening (each pass resamples the photo).

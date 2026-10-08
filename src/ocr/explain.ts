@@ -20,7 +20,7 @@
  */
 
 import { blackAndWhite } from '../solve/puzzle.ts';
-import { contradicted, readCells, type State, stateCells } from './cells.ts';
+import { contradicted, type State, stateCells } from './cells.ts';
 import type { Grid } from './grid.ts';
 import type { Naming } from './names.ts';
 import type { Raster } from './raster.ts';
@@ -42,10 +42,10 @@ export function readWithGrid(
   const read = timed('clues', () =>
     readClues(raster, grid, THRESHOLD, settings)
   );
-  const { states } = timed('cells', () => readCells(raster, grid));
+  const { states } = timed('cells', () => settings.readCells(raster, grid));
   const explained = timed(
     'groups',
-    () => explainGroups(read, states, grid.cols).reading
+    () => explainGroups(read, states, grid.cols, settings.renameGroups).reading
   );
   const fixed = repair(explained.columns, explained.rows, states, grid.cols);
   return {
@@ -99,7 +99,8 @@ export function nonsense(
 export function explainGroups(
   reading: Reading,
   states: State[],
-  cols: number
+  cols: number,
+  rename = true
 ): { reading: Reading; struck: number[]; renamed: number[] } {
   const names = [...reading.names];
   const struck: number[] = [];
@@ -120,7 +121,7 @@ export function explainGroups(
       // (A group named "x" from the start is a mark crossing out a cell.)
       if (n.name === 'x') return;
       if (struck.includes(group) || renamed.includes(group)) return;
-      for (const name of ['x', n.next]) {
+      for (const name of ['x', rename ? n.next : undefined]) {
         if (name === undefined) continue;
         const tried = [...names];
         tried[group] = { ...n, name };

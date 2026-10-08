@@ -42,13 +42,26 @@ export function readClues(
   const lanes = findGlyphs(raster, grid, settings);
   const glyphs = [...lanes.columns, ...lanes.rows].flat();
   const looks = glyphs.map(look);
-  const groups = cluster(looks, threshold);
+  // Glyphs that can't be read (as settings say), all in one group of their own, named "x".
+  const unreadable = glyphs.map((g) => settings.struckUnread && g.struck);
+  const readable = glyphs.flatMap((_, i) => (unreadable[i] ? [] : [i]));
+  const readGroups = cluster(
+    readable.map((i) => looks[i]!),
+    threshold
+  );
+  const unread = Math.max(-1, ...readGroups) + 1;
+  const groups = glyphs.map(() => unread);
+  readable.forEach((i, k) => (groups[i] = readGroups[k]!));
   const members: number[][] = Array.from(
     { length: Math.max(-1, ...groups) + 1 },
     () => []
   );
   groups.forEach((k, i) => members[k]!.push(i));
-  const names = members.map((m) => name(meanLook(m.map((i) => looks[i]!))));
+  const names = members.map((m, k): Naming =>
+    k === unread
+      ? { name: 'x', d: 0, margin: Infinity }
+      : name(meanLook(m.map((i) => looks[i]!)))
+  );
 
   const index = new Map(glyphs.map((g, i) => [g, i]));
   const laneNumbers = numbers(lanes);
