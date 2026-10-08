@@ -47,3 +47,38 @@ git -C ~/src/number-loom diff 47d7cb5 -- src/solve src/puzzle.rs
 - Tests: the emoji notation is kept. The Triano, Blot, settle, old-scrub and `filter_report`
   tests are dropped. New: `verify`, and a brute-force check of `exhaustLine` on every lane of up
   to 6 cells in 3 colors.
+
+## `grid_solve.rs` → `grid.ts`
+
+- `SolveContext` is gone. `SolveState` holds the puzzle, `maxEffort` and its scratch buffers
+  itself (clones share the buffers, as forks shared the context), so no method takes a `ctx`.
+  `SolveState::new` is `SolveState.start`. `LaneState` is spread over per-lane typed arrays
+  (`unknownCells`, and `queued`, indexed `lane * 3 + mode`). `ModeMap` is a 3-element array
+  indexed by `Mode`.
+- `run`/`run_recording` are one `run(trail?)`, and `step`/`step_recording` are one
+  `step(trail?)`. They return `'solved' | 'stalled' | { contradiction: lane }` rather than a
+  `Result`, which replaces the `Unsolvable` trait and `Contradiction`. `learn`/`learn_within`
+  return `'new' | 'same' | 'contradiction'`. `learn`'s `is` parameter comes last and defaults
+  to `true`. `learn_new` is gone. `unwind(trail, from)` takes a start index, rather than a
+  slice.
+- `VecDeque` is a small array-with-a-head `Queue`.
+- `debug_assert_unknown_cells_agree` is `unknownCellsDrift()`, which the tests call, since there
+  are no debug builds.
+- `TrailStep { cell_idx, old_value, … }` is `{ cell, old, … }`, and `TrailReason` is a tagged
+  union.
+- `gather_into` is `gather` (with an optional buffer), and `fixed_clues` is `allFixedClues`.
+  `line_logic_solve` is `lineLogicSolve`, which returns the outcome and the state, rather than a
+  `Report`.
+- Dropped: `SolveOptions`' tracing, progress, `only_solve_color` and `stop_at_first_solution`,
+  as well as `display_step`, `family_letter`/`text_coord`, `LineCache`/`op_or_cache` (see
+  below), `settle_solution`, `analyze_lines`, `disambig_candidates`, `Report`/`dyn_solution`,
+  and the separate `solve`.
+- Tests: the unwind tests, the crossing-contradiction test and `max_effort` are ported. New: a
+  clone test, and a soundness test over random colored pictures (in place of the triangular
+  ones).
+
+## Not (yet) ported
+
+- **The line cache** (`LineCache`, keyed on clues plus lane contents). In JS, the key would be a
+  string built on every call. It's only worth adding if scrubbing turns out to be the
+  bottleneck.
