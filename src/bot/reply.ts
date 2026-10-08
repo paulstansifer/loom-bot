@@ -3,11 +3,18 @@
  * guidance, if the clues read make sense, followed by what was read and how long it took; and
  * otherwise, what went wrong.
  *
- * The person's progress in the grid isn't read yet, so the guidance is for someone who hasn't
- * started.
+ * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read
+ * are worked out from it (`repair.ts`). If the progress contradicts the clues in many lanes, it
+ * was probably misread, and the guidance is for someone who hasn't started.
  */
 
 import { findPuzzle } from '../ocr/bounds.ts';
+import {
+  cellsText,
+  contradicted,
+  readCells,
+  stateCells,
+} from '../ocr/cells.ts';
 import type { Raster } from '../ocr/raster.ts';
 import {
   cluesText,
@@ -15,6 +22,7 @@ import {
   readClues,
   type Reading,
 } from '../ocr/read.ts';
+import { repair } from '../ocr/repair.ts';
 import { blankGrid } from '../solve/grid.ts';
 import { blackAndWhite } from '../solve/puzzle.ts';
 import { guidance, guidanceToMessage } from './guidance.ts';
@@ -22,11 +30,14 @@ import { guidance, guidanceToMessage } from './guidance.ts';
 /** Fewer lanes than this with clues in them, in either direction, isn't a puzzle. */
 const MIN_LANES = 4;
 
+/** If the progress read contradicts more than this fraction of the lanes, it's not believed. */
+const MOST_CONTRADICTED = 0.25;
+
 /** Reddit's limit on a comment's length is 10,000 characters. */
 const MAX_REPLY = 9500;
 
-/** The Reddit username of whoever runs the bot, for the sign-off. (None yet.) */
-const OPERATOR: string | undefined = undefined;
+/** The Reddit username of whoever runs the bot, for the sign-off.*/
+const OPERATOR: string | undefined = 'paul_stansifer';
 
 export type Reply = {
   /** One line, saying how it went. */
@@ -55,7 +66,14 @@ export function replyTo(raster: Raster): Reply {
       timings
     );
   const { grid } = found;
-  const reading = timed('clues', () => readClues(raster, grid));
+  const read = timed('clues', () => readClues(raster, grid));
+  const progress = timed('cells', () => readCells(raster, grid));
+  const fixed = repair(read.columns, read.rows, progress.states, grid.cols);
+  const reading: Reading = {
+    ...read,
+    columns: fixed.columns,
+    rows: fixed.rows,
+  };
   const check = consistency(reading);
   const facts = [
     `Picture: ${picture}. Grid: ${grid.cols}x${grid.rows}` +
@@ -80,8 +98,23 @@ export function replyTo(raster: Raster): Reply {
     return debug("the clues read aren't consistent", facts, timings, reading);
 
   const puzzle = blackAndWhite(reading.rows, reading.columns);
-  // (The person's progress isn't read yet.)
-  const g = timed('guidance', () => guidance(puzzle, blankGrid(puzzle)));
+  const cells = stateCells(progress.states);
+  const broken = contradicted(puzzle, cells).length;
+  const believed =
+    grid.pixelPerfect && broken <= MOST_CONTRADICTED * puzzle.lanes.length;
+  facts.push(
+    `Progress read (${believed ? 'used' : 'not used'}; ${broken} lanes contradict it; ` +
+      `${fixed.filled} unreadable clues worked out from it):\n\n${cellsText(
+        progress.states,
+        grid.cols
+      )
+        .split('\n')
+        .map((l) => `    ${l}`)
+        .join('\n')}`
+  );
+  const g = timed('guidance', () =>
+    guidance(puzzle, believed ? cells : blankGrid(puzzle))
+  );
   if (g === 'no-solution')
     return debug('the clues read have no solution', facts, timings, reading);
   const status = `read ${puzzle.width}x${puzzle.height}: ${g.solved}`;

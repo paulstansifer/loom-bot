@@ -262,6 +262,55 @@ samples, only 18 reads consistently. Where its reading differed from its file (w
   shadows on gradients, nearly the background's brightness. Five lanes are missing digits, and
   two have a digit named wrong.
 
+## Reading the grid's state (`src/ocr/cells.ts`, `repair.ts`)
+
+`readCells(raster, grid)` says which cells are filled, crossed out or undecided, without the
+clues (which is good, since a well-solved puzzle's are crossed out). It's a port of number-loom's
+`cells.rs`, changed for what the samples showed.
+
+1. Each cell's *middle* (60% of its width) is shrunk to 8x8 RGB. Staying in the middle leaves out
+   the grid's lines, and the counters some apps print in a cell's corner (sample 26).
+2. The looks are grouped: a look joins the first group within 0.08 (RMS) of its average, then
+   everything moves to its nearest group. A picture's cells fall into a handful of groups (10–12
+   in the worst samples, with gradients). Never more than 16.
+3. A group is *marked* if the middle of its average look differs from the color at the middles of
+   its edges (where neither an X nor a dot reaches). That's by color, not brightness, so
+   sample 7's one red X on the dark background counts.
+4. Colors within 0.12 of each other make a family (a photo's vignette is a gradient of
+   undecided cells; a highlighted row is a shade off). A marked group's color is what's behind
+   its mark. The undecided cells are the biggest family, with a bonus of 1.5 for one with marks
+   on it. Every other plain group is filled, whatever its hue: filled isn't "darker" (in dark
+   mode, sample 7, it's lighter, and its fills are three colors), and in sample 15 so many cells
+   are crossed out that the filled ones are about as many as the undecided ones.
+
+What this reads, on every checked sample whose grid is found: the lanes the state contradicts
+(no arrangement of the clues fits its decided cells) are 0 of them, except for 2 in sample 15
+and 1 in sample 21. Those are the person's mistakes, as far as I can tell from the pictures.
+`scripts/cells-debug.ts [DIR | PICTURE...] [--quiet]` prints the state as text (`#`, `x`, `.`)
+and that count. Without a `.cells` ground truth, a count of contradicted lanes is the check.
+
+Not handled:
+
+- Sample 22's gems (small diamonds in the middle of a few cells, nothing to do with the
+  puzzle). They happen not to be taken for marks there, but nothing stops it. The plan was to
+  name a mark by templates (X, dot) and ignore ones that match none; not done.
+- Colored puzzles, where fills of different colors mean different things. (Fills of different
+  colors in a black-and-white puzzle are all just "filled".)
+- A cell's "crossed" and "undecided" backgrounds differing (sample 14's crossed cell is white on
+  gray): it's the groups' colors that decide, so it works there, but only because the one white
+  cell is too few to be a family.
+- Checking the groups' meanings against the clues, trying other meanings for them when many
+  lanes contradict. For now the bot only stops using the progress if over a quarter of the
+  lanes contradict it, or the picture isn't straight (`reply.ts`).
+
+`repair` (`repairLane`, `repair`; a port of `repair.rs`) works out clues that couldn't be read
+(`NaN`, from marks named "x" where a digit should be) from the state: a fully decided lane's
+clues are its blocks; otherwise finished blocks are matched with clues from each end, then the
+middle ones in order; and a last blotted clue is whatever makes the totals agree (see its
+header comment for the details, and its tests). Not ported: dimmed clues, and backup readings.
+Today's clue reading rarely leaves a `NaN` (struck-out digits are read through the strike), so
+on the samples this changes nothing yet; it's there for crossed-out clues that aren't legible.
+
 ## Solving (`src/solve/`)
 
 There was no JavaScript nonogram solver that does both color puzzles and backtracking, so this is
@@ -336,7 +385,9 @@ port of the Rust bot's `guidance.rs`, whose message wording is human-written: do
 That includes a link that opens the puzzle in the web app. For now, while the bot is being
 tested, every reply also has debugging information: what was read, and how long it took. And
 when the clues don't make sense, or no grid is found, it replies with that instead. The person's
-progress in the grid isn't read yet, so the guidance is for someone who hasn't started.
+progress in the grid is read (see above) and the guidance is for it, unless it contradicts the
+clues in over a quarter of the lanes (then it's a misreading, and the guidance is for someone
+who hasn't started). The debugging information shows it as text.
 
 ```
 node --experimental-strip-types scripts/reply-debug.ts PICTURE_OR_URL... [--status]
