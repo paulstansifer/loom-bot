@@ -1,7 +1,7 @@
 /**
- * What to reply to a post's picture. For now (for testing), that's always something: the
- * guidance, if the clues read make sense, followed by what was read and how long it took; and
- * otherwise, what went wrong.
+ * What to reply to a post's picture: the guidance, if the clues read make sense, and otherwise,
+ * that it couldn't be read. Separately, there's what was read and how long it took, and what went
+ * wrong, for whoever asks for it (`commands.ts`).
  *
  * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read,
  * or seem to be crossed out (`explain.ts`), are worked out from it (`repair.ts`); clues that seem
@@ -47,6 +47,8 @@ export type Reply = {
   status: string;
   /** Markdown, to comment with. */
   text: string;
+  /** Markdown: what was read, and how long it took, for whoever asks. */
+  debugging: string;
   /** The clues read, if it got that far. */
   reading?: Reading;
 };
@@ -136,10 +138,8 @@ export function replyTo(raster: Raster): Reply {
   return {
     status,
     reading,
-    text: fit(
-      guidanceToMessage(puzzle, g, 0, OPERATOR) +
-        debugSection(status, facts, timings, reading)
-    ),
+    text: fit(guidanceToMessage(puzzle, g, 0, OPERATOR)),
+    debugging: debugging(status, facts, timings, reading),
   };
 }
 
@@ -204,20 +204,18 @@ export function debug(
   return {
     status,
     ...(reading ? { reading } : {}),
-    text: fit(
-      "I couldn't read this puzzle." +
-        debugSection(status, facts, timings, reading)
-    ),
+    text: "I couldn't read this puzzle.",
+    debugging: debugging(status, facts, timings, reading),
   };
 }
 
-function debugSection(
+function debugging(
   status: string,
   facts: string[],
   timings: string[],
   reading?: Reading
 ): string {
-  let text = `\n\n---\n\n**Debugging information** (this bot is being tested): ${status}.\n\n`;
+  let text = `**Debugging information**: ${status}.\n\n`;
   for (const fact of facts) text += `${fact}\n\n`;
   if (timings.length > 0) text += `Time taken: ${timings.join(', ')}.\n\n`;
   if (reading) {
@@ -229,7 +227,7 @@ function debugSection(
     text += `Columns' clues, as read:\n\n${block(reading.columns)}\n\n`;
     text += `Rows' clues, as read:\n\n${block(reading.rows)}\n`;
   }
-  return text;
+  return fit(text);
 }
 
 /** Cut a reply that's too long for Reddit. */

@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { isDeleteCommand } from './commands.ts';
+import { command } from './commands.ts';
 
-void test('"!delete", however it is typed', () => {
-  assert.ok(isDeleteCommand('!delete'));
-  assert.ok(isDeleteCommand('  !Delete\n'));
+void test('commands, however they are typed', () => {
+  assert.equal(command('!delete'), 'delete');
+  assert.equal(command('  !Delete\n'), 'delete');
+  assert.equal(command('!DEBUG'), 'debug');
+  assert.equal(command('!optout'), 'optout');
+  assert.equal(command('!optin '), 'optin');
 });
 
-void test('not "!delete"', () => {
-  assert.ok(!isDeleteCommand('delete'));
-  assert.ok(!isDeleteCommand('!delete this, please'));
-  assert.ok(!isDeleteCommand('Thanks! Should I !delete it?'));
+void test('not commands', () => {
+  assert.equal(command('delete'), undefined);
+  assert.equal(command('!delete this, please'), undefined);
+  assert.equal(command('Thanks! Should I !delete it?'), undefined);
+  assert.equal(command('!opt out'), undefined);
 });

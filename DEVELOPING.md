@@ -589,9 +589,10 @@ domains in `devvit.json`. A post without one gets no reply.
 which `glyph-debug.ts` uses too). If that finds no grid, or clues that don't make sense, it tries again as a
 photo of paper (see "Photos of paper"). If they make sense, it replies with guidance (`guidance.ts`, a
 port of the Rust bot's `guidance.rs`, whose message wording is human-written: don't change it).
-That includes a link that opens the puzzle in the web app. For now, while the bot is being
-tested, every reply also has debugging information: what was read, and how long it took. And
-when the clues don't make sense, or no grid is found, it replies with that instead. The person's
+That includes a link that opens the puzzle in the web app. When the clues don't make sense, or
+no grid is found, it replies that it couldn't read the puzzle. Either way, there's debugging
+information too: what was read, how long it took, and what went wrong. It's not in the reply,
+but replying "!debug" to the bot's comment gets it (see below). The person's
 progress in the grid is read (see above) and the guidance is for it, unless it contradicts the
 clues in over a quarter of the lanes (then it's a misreading, and the guidance is for someone
 who hasn't started). The debugging information shows it as text.
@@ -600,7 +601,8 @@ who hasn't started). The debugging information shows it as text.
 node --experimental-strip-types scripts/reply-debug.ts PICTURE_OR_URL... [--status]
 ```
 
-prints the reply a picture (a file, or a post's picture's URL) would get.
+prints the reply a picture (a file, or a post's picture's URL) would get, and its debugging
+information.
 
 Pictures are decoded in pure JavaScript (`src/ocr/decode.ts`), since `sharp` is native: PNG with
 `pngjs`, and JPEG with a copy of `jpeg-js`' decoder (`src/ocr/vendor/`). r/nonograms' pictures
@@ -613,10 +615,16 @@ within 3 of `sharp`'s. On the 12 pictures of real posts the Rust bot downloaded
 except for which of two failures a few unreadable photos get. The same 5 read as for the Rust
 bot. A reply takes 0.1 to 0.6 s for a screenshot, and up to 2.5 s for a big photo.
 
-If the post's author replies "!delete" to one of the bot's comments (Devvit's `onCommentCreate`
-trigger), `handleComment` (`commands.ts`) deletes it. Only the post's author can: a crosspost's
-is whoever crossposted it, since that's where the bot replied. Their "!delete" comment stays,
-since the bot can't delete other people's comments.
+People can give the bot commands in comments (Devvit's `onCommentCreate` trigger;
+`handleComment` in `commands.ts`):
+
+- "!delete", replying to one of the bot's comments, deletes it, if it's from the post's author.
+  (A crosspost's is whoever crossposted it, since that's where the bot replied.) Their
+  "!delete" comment stays, since the bot can't delete other people's comments.
+- "!debug", replying to the bot's reply to a post, gets that reply's debugging information,
+  from anyone. It's kept in Redis, under the reply's ID, for a year.
+- "!optout", anywhere, stops the bot replying to the commenter's posts (kept in Redis, under
+  their user ID), and "!optin" undoes that. The bot answers both, to say it's done it.
 
 Not yet known, since it needs a playtest on Devvit:
 
