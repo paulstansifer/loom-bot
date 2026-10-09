@@ -2,18 +2,26 @@
  * Commands people can give the bot in comments:
  *
  * - "!delete", replying to one of the bot's comments on their own post, deletes it.
- * - "!debug", replying to the bot's reply to a post, gets what was read, and how long it took
- *   (saved when the bot replied, for `DEBUGGING_DAYS`).
+ * - "!whynot", as a top-level comment on a post, gets what the bot made of it: what was read, how
+ *   long it took, and what went wrong (saved when the bot looked at the post, for
+ *   `DEBUGGING_DAYS`). The bot doesn't reply to a post it can't read, so this is how to find out.
+ * - "!debug", replying to the bot's reply to a post, gets the same.
  * - "!optout", anywhere, stops the bot replying to their posts, and "!optin" undoes that.
  */
 
 import { reddit, redis } from '@devvit/web/server';
 import type { OnCommentCreateRequest } from '@devvit/web/shared';
-import type { T1, T2 } from '@devvit/shared-types/tid.js';
+import type { T1, T2, T3 } from '@devvit/shared-types/tid.js';
 
-type Command = 'delete' | 'debug' | 'optout' | 'optin';
+type Command = 'delete' | 'debug' | 'whynot' | 'optout' | 'optin';
 
-const COMMANDS: readonly Command[] = ['delete', 'debug', 'optout', 'optin'];
+const COMMANDS: readonly Command[] = [
+  'delete',
+  'debug',
+  'whynot',
+  'optout',
+  'optin',
+];
 
 /** How long a reply's debugging information is kept for. */
 const DEBUGGING_DAYS = 365;
@@ -25,18 +33,18 @@ export function command(body: string): Command | undefined {
 }
 
 const optOutKey = (user: T2) => `optout:${user}`;
-const debuggingKey = (comment: T1) => `debugging:${comment}`;
+const debuggingKey = (post: T3) => `debugging:${post}`;
 
 export async function optedOut(user: T2): Promise<boolean> {
   return (await redis.exists(optOutKey(user))) > 0;
 }
 
-/** Keeps `debugging` for whoever asks about the bot's comment `comment`. */
+/** Keeps `debugging` for whoever asks about `post`. */
 export async function saveDebugging(
-  comment: T1,
+  post: T3,
   debugging: string
 ): Promise<void> {
-  await redis.set(debuggingKey(comment), debugging, {
+  await redis.set(debuggingKey(post), debugging, {
     expiration: new Date(Date.now() + DEBUGGING_DAYS * 24 * 60 * 60 * 1000),
   });
 }
@@ -69,6 +77,12 @@ export async function handleComment(
       return;
   }
 
+  if (which === 'whynot') {
+    if (comment.parentId.startsWith('t3_'))
+      await explain(id, comment.postId as T3);
+    return;
+  }
+
   // The rest are replies to the bot's comments.
   if (!comment.parentId.startsWith('t1_')) return;
   const parent = await reddit.getCommentById(comment.parentId as T1);
@@ -85,14 +99,19 @@ export async function handleComment(
       console.log(`${id}: deleted ${parent.id}, as the post's author asked`);
       return;
     case 'debug': {
-      // (Only the bot's replies to posts have any saved.)
-      const debugging = await redis.get(debuggingKey(parent.id));
-      if (!debugging) {
-        console.log(`${id}: no debugging information for ${parent.id}`);
-        return;
-      }
-      await answer(debugging);
+      // (Only a reply to the post itself, the bot's one comment, has any.)
+      if (parent.parentId.startsWith('t3_')) await explain(id, parent.postId);
       return;
     }
   }
+}
+
+/** Replies to `comment` with what the bot made of `post`, if it's looked at it. */
+async function explain(comment: T1, post: T3): Promise<void> {
+  const debugging = await redis.get(debuggingKey(post));
+  if (!debugging) {
+    console.log(`${comment}: no debugging information for ${post}`);
+    return;
+  }
+  await reddit.submitComment({ id: comment, text: debugging, runAs: 'APP' });
 }

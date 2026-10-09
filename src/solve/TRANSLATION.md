@@ -116,7 +116,7 @@ git -C ~/src/number-loom diff 47d7cb5 -- src/solve src/puzzle.rs
 ## `guidance.rs`' `find_answer` → `solve.ts`
 
 - `solve(puzzle, { timeLimitMs = 2000 })` gives `kind` (`'line-logic' | 'search' | 'ambiguous'
-  | 'out-of-time'`, as `Solved`) and each cell's color (-1 for unknown), or
+| 'out-of-time'`, as `Solved`) and each cell's color (-1 for unknown), or
   `{ kind: 'no-solution' }` where Rust gave an error. It doesn't run line logic twice, as
   `find_answer` does.
 - Tests: `puzzle.rs`' `a_clue_only_puzzle_that_needs_a_guess_still_gets_its_picture`. New:

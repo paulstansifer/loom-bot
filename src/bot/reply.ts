@@ -1,7 +1,7 @@
 /**
  * What to reply to a post's picture: the guidance, if the clues read make sense, and otherwise,
- * that it couldn't be read. Separately, there's what was read and how long it took, and what went
- * wrong, for whoever asks for it (`commands.ts`).
+ * nothing. Separately, there's what was read and how long it took, and what went wrong, for
+ * whoever asks for it (`commands.ts`).
  *
  * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read,
  * or seem to be crossed out (`explain.ts`), are worked out from it (`repair.ts`); clues that seem
@@ -45,8 +45,8 @@ const OPERATOR: string | undefined = 'paul_stansifer';
 export type Reply = {
   /** One line, saying how it went. */
   status: string;
-  /** Markdown, to comment with. */
-  text: string;
+  /** Markdown, to comment with; none if the puzzle couldn't be read. */
+  text?: string;
   /** Markdown: what was read, and how long it took, for whoever asks. */
   debugging: string;
   /** The clues read, if it got that far. */
@@ -204,7 +204,6 @@ export function debug(
   return {
     status,
     ...(reading ? { reading } : {}),
-    text: "I couldn't read this puzzle.",
     debugging: debugging(status, facts, timings, reading),
   };
 }

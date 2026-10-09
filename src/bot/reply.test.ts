@@ -6,7 +6,7 @@ import { debug, replyTo } from './reply.ts';
 
 void test('a debugging reply says what went wrong', () => {
   const reply = debug('no grid found: just a cat', ['Picture: 10x10 picture.']);
-  assert.equal(reply.text, "I couldn't read this puzzle.");
+  assert.equal(reply.text, undefined);
   assert.ok(reply.debugging.includes('no grid found: just a cat'));
   assert.ok(reply.debugging.includes('Picture: 10x10 picture.'));
 });
@@ -18,6 +18,7 @@ void test('a blank picture has no puzzle', () => {
     data: new Uint8Array(50 * 40 * 3).fill(255),
   });
   assert.match(reply.status, /^no grid found/);
+  assert.equal(reply.text, undefined);
 });
 
 // The sample pictures, if they're here (see `src/ocr/samples.ts`). Every checked one but the
@@ -35,14 +36,14 @@ for (const sample of samples()) {
     assert.deepEqual(reply.reading?.columns, clues.columnClues);
     assert.deepEqual(reply.reading?.rows, clues.rowClues);
     assert.ok(
-      reply.text.startsWith(
+      reply.text!.startsWith(
         `This looks like a ${clues.cols}x${clues.rows} puzzle`
       )
     );
     if (!reply.status.endsWith('ambiguous'))
-      assert.ok(reply.text.includes('[Start from scratch]('));
-    assert.ok(!reply.text.includes('Debugging information'));
+      assert.ok(reply.text!.includes('[Start from scratch]('));
+    assert.ok(!reply.text!.includes('Debugging information'));
     assert.ok(reply.debugging.includes("Columns' clues, as read:"));
-    assert.ok(reply.text.length < 10_000 && reply.debugging.length < 10_000);
+    assert.ok(reply.text!.length < 10_000 && reply.debugging.length < 10_000);
   });
 }

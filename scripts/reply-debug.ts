@@ -40,6 +40,6 @@ for (const source of args.filter((a) => !a.startsWith('--'))) {
   if (statusOnly) console.log(`${source}: ${reply.status} (${ms} ms)`);
   else
     console.log(
-      `${source}: ${reply.status} (${ms} ms)\n\n${reply.text}\n\n---\n\n${reply.debugging}\n`
+      `${source}: ${reply.status} (${ms} ms)\n\n${reply.text ?? '(no reply)'}\n\n---\n\n${reply.debugging}\n`
     );
 }

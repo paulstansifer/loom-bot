@@ -7,6 +7,7 @@ void test('commands, however they are typed', () => {
   assert.equal(command('!delete'), 'delete');
   assert.equal(command('  !Delete\n'), 'delete');
   assert.equal(command('!DEBUG'), 'debug');
+  assert.equal(command('!WhyNot'), 'whynot');
   assert.equal(command('!optout'), 'optout');
   assert.equal(command('!optin '), 'optin');
 });

@@ -14,6 +14,7 @@ export async function handlePost(id: T3): Promise<void> {
   let post = await reddit.getPostById(id);
   if (post.authorId && (await optedOut(post.authorId))) {
     console.log(`${id}: its author opted out`);
+    await saveDebugging(id, 'I skipped this post: its author opted out.');
     return;
   }
   // A crosspost's pictures are in the post it's a copy of.
@@ -26,6 +27,10 @@ export async function handlePost(id: T3): Promise<void> {
   });
   if (!url) {
     console.log(`${id}: no picture`);
+    await saveDebugging(
+      id,
+      'I skipped this post: it has no picture I can read.'
+    );
     return;
   }
 
@@ -38,10 +43,7 @@ export async function handlePost(id: T3): Promise<void> {
     ]);
   }
   console.log(`${id}: ${reply.status} (${url})`);
-  const comment = await reddit.submitComment({
-    id,
-    text: reply.text,
-    runAs: 'APP',
-  });
-  await saveDebugging(comment.id, reply.debugging);
+  await saveDebugging(id, reply.debugging);
+  if (reply.text)
+    await reddit.submitComment({ id, text: reply.text, runAs: 'APP' });
 }
