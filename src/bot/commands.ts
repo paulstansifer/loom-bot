@@ -67,13 +67,13 @@ export async function handleComment(
       await redis.set(optOutKey(user), '1');
       console.log(`${id}: ${user} opted out`);
       await answer(
-        `OK, I won't reply to your posts any more. To undo this, comment "!optin".`
+        `This bot don't reply to your posts in the future. To undo this, comment "!optin".`
       );
       return;
     case 'optin':
       await redis.del(optOutKey(user));
       console.log(`${id}: ${user} opted in`);
-      await answer(`OK, I'll reply to your posts again.`);
+      await answer(`This bot will resume replying to your posts.`);
       return;
   }
 
