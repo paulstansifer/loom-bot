@@ -6,7 +6,8 @@
     "entry": "index.cjs"
   },
   "triggers": {
-    "onPostCreate": "/internal/triggers/on-post-create"
+    "onPostCreate": "/internal/triggers/on-post-create",
+    "onCommentCreate": "/internal/triggers/on-comment-create"
   },
   "scripts": {
     "build": "vite build",

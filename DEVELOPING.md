@@ -613,9 +613,16 @@ within 3 of `sharp`'s. On the 12 pictures of real posts the Rust bot downloaded
 except for which of two failures a few unreadable photos get. The same 5 read as for the Rust
 bot. A reply takes 0.1 to 0.6 s for a screenshot, and up to 2.5 s for a big photo.
 
+If the post's author replies "!delete" to one of the bot's comments (Devvit's `onCommentCreate`
+trigger), `handleComment` (`commands.ts`) deletes it. Only the post's author can: a crosspost's
+is whoever crossposted it, since that's where the bot replied. Their "!delete" comment stays,
+since the bot can't delete other people's comments.
+
 Not yet known, since it needs a playtest on Devvit:
 
 - Whether the post `onPostCreate` hands over is far enough along for its pictures to be ready,
   and whether `Post.gallery`'s URLs are the ones expected.
 - Whether `fetch` from `i.redd.it` and `preview.redd.it` is allowed (the domains are in
   `devvit.json`, but may need Reddit's approval), and whether `node:zlib` is (see "Share links").
+- Whether `onCommentCreate` hands over the post's `authorId`, and whether `reddit.getAppUser()`
+  is the user the bot's comments are by (`runAs: 'APP'`).

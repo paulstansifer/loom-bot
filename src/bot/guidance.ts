@@ -332,6 +332,7 @@ export function guidanceToMessage(
     : '';
 
   // (Without an operator to name, there's no sign-off.)
+  // TODO: say that the post's author can reply "!delete" to remove this (see `commands.ts`).
   const signOff = operator
     ? `\n\n^(This is a bot, operated by [u/${operator}](https://www.reddit.com/user/${operator}/))`
     : '';
