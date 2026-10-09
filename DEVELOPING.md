@@ -573,9 +573,7 @@ commit and what changed. It writes byte-for-byte what number-loom does, and the 
 that: `woven-fixtures/` is a copy of number-loom's frozen share strings. Share strings written
 for all the checked samples (with progress) read back right in the Rust app.
 
-It uses `node:zlib` for Brotli. That works in Node, but whether Devvit allows it hasn't been
-checked yet. If it doesn't, Brotli can store data uncompressed, which is easy to write, but makes
-for longer links.
+It uses `node:zlib` for Brotli, which works on Devvit (confirmed in a playtest).
 
 ## The bot (`src/bot/`, `src/routes/triggers.ts`)
 
@@ -632,5 +630,5 @@ Not yet known, since it needs a playtest on Devvit:
 
 - Whether the post `onPostCreate` hands over is far enough along for its pictures to be ready,
   and whether `Post.gallery`'s URLs are the ones expected.
-- Whether `fetch` from `i.redd.it` and `preview.redd.it` is allowed (the domains are in
-  `devvit.json`, but may need Reddit's approval), and whether `node:zlib` is (see "Share links").
+- Whether the domains for `fetch` in `devvit.json` (`i.redd.it` and `preview.redd.it`) need
+  Reddit's approval before the app is published. (They work in a playtest.)
