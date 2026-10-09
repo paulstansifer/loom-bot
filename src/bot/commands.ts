@@ -79,7 +79,7 @@ export async function handleComment(
 
   if (which === 'whynot') {
     if (comment.parentId.startsWith('t3_'))
-      await explain(id, comment.postId as T3);
+      await explain(input, comment.postId as T3);
     return;
   }
 
@@ -87,7 +87,9 @@ export async function handleComment(
   if (!comment.parentId.startsWith('t1_')) return;
   const parent = await reddit.getCommentById(comment.parentId as T1);
   const app = await reddit.getAppUser();
-  if (!app || parent.authorId !== app.id) return;
+  // (TEMPORARY, for the playtest: a "!debug" answers even if the comment doesn't seem to be the
+  // bot's, since that's what the playtest facts are there to find out.)
+  if ((!app || parent.authorId !== app.id) && which !== 'debug') return;
 
   switch (which) {
     case 'delete':
@@ -100,18 +102,59 @@ export async function handleComment(
       return;
     case 'debug': {
       // (Only a reply to the post itself, the bot's one comment, has any.)
-      if (parent.parentId.startsWith('t3_')) await explain(id, parent.postId);
+      if (parent.parentId.startsWith('t3_'))
+        await explain(input, parent.postId, parent.authorId);
       return;
     }
   }
 }
 
-/** Replies to `comment` with what the bot made of `post`, if it's looked at it. */
-async function explain(comment: T1, post: T3): Promise<void> {
+/**
+ * Replies to the comment with what the bot made of `post`, if it's looked at it. `botAuthor` is
+ * the author of the bot's comment that was replied to, if it was.
+ */
+async function explain(
+  input: OnCommentCreateRequest,
+  post: T3,
+  botAuthor?: T2
+): Promise<void> {
+  const id = input.comment!.id as T1;
   const debugging = await redis.get(debuggingKey(post));
   if (!debugging) {
-    console.log(`${comment}: no debugging information for ${post}`);
+    console.log(`${id}: no debugging information for ${post}`);
     return;
   }
-  await reddit.submitComment({ id: comment, text: debugging, runAs: 'APP' });
+  const text = `${debugging}\n\n${await playtestFacts(input, post, botAuthor)}`;
+  await reddit.submitComment({ id, text, runAs: 'APP' });
+}
+
+/**
+ * Facts about what Devvit hands over, to check what `DEVELOPING.md` lists as not yet known: whether
+ * `onCommentCreate` includes the post's author, and whether `getAppUser()` is who the bot comments
+ * as. (Not part of anything the bot decides.)
+ */
+async function playtestFacts(
+  input: OnCommentCreateRequest,
+  post: T3,
+  botAuthor?: T2
+): Promise<string> {
+  const attempt = async (f: () => Promise<unknown>) => {
+    try {
+      return String((await f()) ?? '(none)');
+    } catch (e) {
+      return `(error: ${String(e)})`;
+    }
+  };
+  const lines = [
+    `Playtest facts:`,
+    `- Post's author, in the comment trigger: ${input.post?.authorId || '(missing)'}`,
+    `- Post's author, from \`getPostById\`: ${await attempt(async () => (await reddit.getPostById(post)).authorId)}`,
+    `- This comment's author, in the trigger: ${input.author?.id || '(missing)'}`,
+    `- \`getAppUser()\`: ${await attempt(async () => {
+      const app = await reddit.getAppUser();
+      return app && `${app.id} (u/${app.username})`;
+    })}`,
+    `- Author of the bot comment replied to: ${botAuthor ?? '(not a reply to a bot comment)'}`,
+  ];
+  return lines.map((l) => `${l}\n`).join('\n');
 }

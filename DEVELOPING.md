@@ -636,3 +636,6 @@ Not yet known, since it needs a playtest on Devvit:
   `devvit.json`, but may need Reddit's approval), and whether `node:zlib` is (see "Share links").
 - Whether `onCommentCreate` hands over the post's `authorId`, and whether `reddit.getAppUser()`
   is the user the bot's comments are by (`runAs: 'APP'`).
+  The answers to "!whynot" and "!debug" end with "Playtest facts" that show both (`playtestFacts`
+  in `commands.ts`; remove it once known, along with the exception for "!debug" in
+  `handleComment`, which makes it answer even when the comment isn't the bot's).

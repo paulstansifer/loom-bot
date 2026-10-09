@@ -335,7 +335,7 @@ export function guidanceToMessage(
   // TODO: mention the commands in `commands.ts`: "!delete" (for the post's author), "!debug", and
   // "!optout".
   const signOff = operator
-    ? `\n\n^(This is a bot, operated by [u/${operator}](https://www.reddit.com/user/${operator}/))`
+    ? `\n\n^(This is a bot, operated by [u/${operator}](https://www.reddit.com/user/${operator}/). Reply '!delete' to delete this message or '!optout' to not receive it in the future.)`
     : '';
 
   return `${intro}${ocr}${progress()}\n\n${links}${nextSteps(puz, g)}${signOff}`;
