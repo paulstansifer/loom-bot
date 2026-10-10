@@ -214,7 +214,9 @@ void test('the message', () => {
   );
   assert.ok(message.includes(' * >!'));
   assert.ok(
-    message.endsWith('[u/someone](https://www.reddit.com/user/someone/))')
+    message.endsWith(
+      "[u/someone](https://www.reddit.com/user/someone/). Reply '!delete' to delete this message or '!optout' to not receive it in the future.)"
+    )
   );
   assert.ok(!guidanceToMessage(p, g, 0).includes('This is a bot'));
 });
