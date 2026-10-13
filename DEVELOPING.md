@@ -618,14 +618,15 @@ bot. A reply takes 0.1 to 0.6 s for a screenshot, and up to 2.5 s for a big phot
 People can give the bot commands in comments (Devvit's `onCommentCreate` trigger;
 `handleComment` in `commands.ts`):
 
-- "!delete", replying to one of the bot's comments, deletes it, if it's from the post's author.
-  (A crosspost's is whoever crossposted it, since that's where the bot replied.) Their
+- "!delete", replying to one of the bot's comments, deletes it, if it's from the post's author
+  (a crosspost's is whoever crossposted it, since that's where the bot replied) or one of the
+  subreddit's moderators. Anyone else is ignored. Their
   "!delete" comment stays, since the bot can't delete other people's comments.
 - "!whynot", as a top-level comment on a post, gets the debugging information from when the bot
   looked at the post. It's kept in Redis, under the post's ID, for a year. (Posts
   the bot skipped, for having no picture or an opted-out author, get a note saying so.)
   "!debug", replying to the bot's reply, gets the same. Both are only for the post's author
-  (as for "!delete") and the subreddit's moderators; anyone else is ignored. And a post gets
+  and the subreddit's moderators, as for "!delete". And a post gets
   only one such answer, whichever command asks and whoever it's from: a counter in Redis, under
   the post's ID, says it's been given.
 - "!optout", anywhere, stops the bot replying to the commenter's posts (kept in Redis, under
