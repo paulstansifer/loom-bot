@@ -304,7 +304,7 @@ export function guidanceToMessage(
       const more =
         g.errors.length > SHOWN ? `, and ${g.errors.length - SHOWN} more` : '';
       // (Want to start this on its own line.)
-      return `\nIf I read the grid correctly, there are ${count(g.errors.length, 'mistake')} to remove: ${spoiler(shown.join(', ') + more)}\n`;
+      return `\nIf I read the grid correctly, I see ${count(g.errors.length, 'mistake')} to remove: ${spoiler(shown.join(', ') + more)}\n`;
     }
     if (g.next.kind === 'done') {
       return `${
