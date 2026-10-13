@@ -1,6 +1,6 @@
 /** Replying to a new post: reading its first picture, and commenting with what came of it. */
 
-import { reddit } from '@devvit/web/server';
+import { type Post, reddit } from '@devvit/web/server';
 import type { T3 } from '@devvit/shared-types/tid.js';
 
 import { optedOut, saveDebugging } from './commands.ts';
@@ -10,8 +10,28 @@ import { debug, type Reply, replyTo } from './reply.ts';
 /** How many crossposts deep to look for the original. */
 const MAX_CROSSPOSTS = 3;
 
+/**
+ * Why a post is left alone whatever its picture is, if it is: it's been removed (by anyone: a
+ * moderator, a filter, Reddit, or its author), or it's locked, or NSFW.
+ */
+export function unfit(
+  post: Pick<Post, 'removed' | 'spam' | 'removedByCategory' | 'locked' | 'nsfw'>
+): string | undefined {
+  if (post.removed || post.spam || post.removedByCategory)
+    return 'it was removed';
+  if (post.locked) return "it's locked";
+  if (post.nsfw) return "it's NSFW";
+  return undefined;
+}
+
 export async function handlePost(id: T3): Promise<void> {
   let post = await reddit.getPostById(id);
+  const why = unfit(post);
+  if (why) {
+    console.log(`${id}: ${why}`);
+    await saveDebugging(id, `I skipped this post: ${why}.`);
+    return;
+  }
   if (post.authorId && (await optedOut(post.authorId))) {
     console.log(`${id}: its author opted out`);
     await saveDebugging(id, 'I skipped this post: its author opted out.');

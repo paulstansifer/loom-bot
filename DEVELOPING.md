@@ -583,7 +583,10 @@ When a post is made (Devvit's `onPostCreate` trigger), `handlePost` (`post.ts`) 
 picture: in a gallery, the picture it links to, or the first one in its text (`picture.ts`, as
 the Rust bot's `first_picture` does). A crosspost's is the original's. Only pictures on
 `i.redd.it` and `preview.redd.it` are downloaded, since Devvit only lets an app fetch from the
-domains in `devvit.json`. A post without one gets no reply.
+domains in `devvit.json`. A post without one gets no reply. Neither does one that's been removed
+(by a moderator, a filter, Reddit or its author: `unfit` goes by `removed`, `spam` and
+`removedByCategory`), is locked, or is NSFW, as it is when the trigger arrives. For a crosspost,
+that's the crosspost, not the original.
 
 `replyTo` (`reply.ts`) finds the grid, reads the clues, and checks them (`src/ocr/read.ts`,
 which `glyph-debug.ts` uses too). If that finds no grid, or clues that don't make sense, it tries again as a
@@ -624,7 +627,8 @@ People can give the bot commands in comments (Devvit's `onCommentCreate` trigger
   "!delete" comment stays, since the bot can't delete other people's comments.
 - "!whynot", as a top-level comment on a post, gets the debugging information from when the bot
   looked at the post. It's kept in Redis, under the post's ID, for a year. (Posts
-  the bot skipped, for having no picture or an opted-out author, get a note saying so.)
+  the bot skipped, for having no picture or an opted-out author, or for being removed, locked
+  or NSFW, get a note saying so.)
   "!debug", replying to the bot's reply, gets the same. Both are only for the post's author
   and the subreddit's moderators, as for "!delete". And a post gets
   only one such answer, whichever command asks and whoever it's from: a counter in Redis, under
