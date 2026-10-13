@@ -16,7 +16,7 @@ The bot answers `!whynot` or `!debug` only once per post.
 
 ## Development
 
-I'm afraid that this is pretty much entirely LLM-generated, with two exceptions:
+I'm afraid that this is pretty much entirely LLM-generated (this OCR stuff is the sort of messy hill-climbing optimization they're pretty effective at), with two exceptions:
 
 - I insisted on writing the user-visible text myself.
 - The solver is translated from Number Loom's solver, which is mostly human-written.

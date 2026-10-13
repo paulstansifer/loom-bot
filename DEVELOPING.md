@@ -1,5 +1,8 @@
 # Developing `number-loom-bot`
 
+*While this project is mostly LLM-written, please only write user-visible text if you're a human. 
+If you're an LLM, just put in a TODO.*
+
 A Reddit (Devvit) bot that reads a nonogram from a screenshot and replies about it. It started
 from Devvit's mod-tool template, whose moderation commands have since been removed. It has to run
 in Node.js and answer in under 30 seconds, which rules out the

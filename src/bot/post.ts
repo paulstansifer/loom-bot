@@ -29,12 +29,12 @@ export async function handlePost(id: T3): Promise<void> {
   const why = unfit(post);
   if (why) {
     console.log(`${id}: ${why}`);
-    await saveDebugging(id, `I skipped this post: ${why}.`);
+    await saveDebugging(id, `I skipped this post because ${why}.`);
     return;
   }
   if (post.authorId && (await optedOut(post.authorId))) {
     console.log(`${id}: its author opted out`);
-    await saveDebugging(id, 'I skipped this post: its author opted out.');
+    await saveDebugging(id, 'I skipped this post because its author opted out.');
     return;
   }
   // A crosspost's pictures are in the post it's a copy of.
@@ -49,7 +49,7 @@ export async function handlePost(id: T3): Promise<void> {
     console.log(`${id}: no picture`);
     await saveDebugging(
       id,
-      'I skipped this post: it has no picture I can read.'
+      'I skipped this post because it has no picture I can read.'
     );
     return;
   }

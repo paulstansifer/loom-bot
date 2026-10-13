@@ -333,7 +333,7 @@ export function guidanceToMessage(
 
   // (Without an operator to name, there's no sign-off.)
   const signOff = operator
-    ? `\n\n^(This is a bot, operated by [u/${operator}](https://www.reddit.com/user/${operator}/). Reply '!delete' to delete this message or '!optout' to not receive it in the future.)`
+    ? `\n\n^(I am [a bot](https://github.com/paulstansifer/loom-bot), operated by [u/${operator}](https://www.reddit.com/user/${operator}/). Reply '!delete' to delete this message or '!optout' to not receive it in the future.)`
     : '';
 
   return `${intro}${ocr}${progress()}\n\n${links}${nextSteps(puz, g)}${signOff}`;
