@@ -589,8 +589,8 @@ photo of paper (see "Photos of paper"). If they make sense, it replies with guid
 port of the Rust bot's `guidance.rs`, whose message wording is human-written: don't change it).
 That includes a link that opens the puzzle in the web app. When the clues don't make sense, or
 no grid is found, it doesn't reply at all. Either way, there's debugging information too: what was read, how long
-it took, and what went wrong. It's kept for whoever asks for it with "!whynot" or "!debug" (see
-below). The person's
+it took, and what went wrong. It's kept for the post's author, or a moderator, to ask for with
+"!whynot" or "!debug" (see below). The person's
 progress in the grid is read (see above) and the guidance is for it, unless it contradicts the
 clues in over a quarter of the lanes (then it's a misreading, and the guidance is for someone
 who hasn't started). The debugging information shows it as text.
@@ -620,9 +620,12 @@ People can give the bot commands in comments (Devvit's `onCommentCreate` trigger
   (A crosspost's is whoever crossposted it, since that's where the bot replied.) Their
   "!delete" comment stays, since the bot can't delete other people's comments.
 - "!whynot", as a top-level comment on a post, gets the debugging information from when the bot
-  looked at the post, from anyone. It's kept in Redis, under the post's ID, for a year. (Posts
+  looked at the post. It's kept in Redis, under the post's ID, for a year. (Posts
   the bot skipped, for having no picture or an opted-out author, get a note saying so.)
-  "!debug", replying to the bot's reply, gets the same.
+  "!debug", replying to the bot's reply, gets the same. Both are only for the post's author
+  (as for "!delete") and the subreddit's moderators; anyone else is ignored. And a post gets
+  only one such answer, whichever command asks and whoever it's from: a counter in Redis, under
+  the post's ID, says it's been given.
 - "!optout", anywhere, stops the bot replying to the commenter's posts (kept in Redis, under
   their user ID), and "!optin" undoes that. The bot answers both, to say it's done it.
 

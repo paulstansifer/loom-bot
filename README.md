@@ -4,13 +4,15 @@ This is a Reddit bot that reads screenshots (or, under good conditions, photogra
 
 ## Commands
 
-| Command   | Where                       | Who           | What it does                                           |
-| --------- | --------------------------- | ------------- | ------------------------------------------------------ |
-| `!delete` | Reply to the bot's comment  | The post's OP | Deletes the bot's comment.                             |
-| `!whynot` | Top-level comment on a post | Anyone        | Shows debugging information if the bot didn't respond. |
-| `!debug`  | Reply to the bot's comment  | Anyone        | Shows what the bot read, and how long it took.         |
-| `!optout` | Anywhere                    | Anyone        | Makes the bot stop replying to your posts.             |
-| `!optin`  | Anywhere                    | Anyone        | Undoes `!optout`.                                      |
+| Command   | Where                       | Who                    | What it does                                           |
+| --------- | --------------------------- | ---------------------- | ------------------------------------------------------ |
+| `!delete` | Reply to the bot's comment  | The post's OP          | Deletes the bot's comment.                             |
+| `!whynot` | Top-level comment on a post | The post's OP, or mods | Shows debugging information if the bot didn't respond. |
+| `!debug`  | Reply to the bot's comment  | The post's OP, or mods | Shows what the bot read, and how long it took.         |
+| `!optout` | Anywhere                    | Anyone                 | Makes the bot stop replying to your posts.             |
+| `!optin`  | Anywhere                    | Anyone                 | Undoes `!optout`.                                      |
+
+The bot answers `!whynot` or `!debug` only once per post.
 
 
 ## Development
