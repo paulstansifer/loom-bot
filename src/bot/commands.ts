@@ -1,13 +1,15 @@
 /**
  * Commands people can give the bot in comments:
  *
- * - "!delete", replying to one of the bot's comments on their own post, deletes it.
+ * - "!delete", replying to one of the bot's comments, deletes it.
  * - "!whynot", as a top-level comment on a post, gets what the bot made of it: what was read, how
  *   long it took, and what went wrong (saved when the bot looked at the post, for
  *   `DEBUGGING_DAYS`). The bot doesn't reply to a post it can't read, so this is how to find out.
- * - "!debug", replying to the bot's reply to a post, gets the same. Both are only for the post's
- *   author and the subreddit's moderators, and a post only ever gets one such answer.
+ * - "!debug", replying to the bot's reply to a post, gets the same. A post only ever gets one
+ *   such answer.
  * - "!optout", anywhere, stops the bot replying to their posts, and "!optin" undoes that.
+ *
+ * The first three are only for the post's author and the subreddit's moderators.
  */
 
 import { reddit, redis } from '@devvit/web/server';
@@ -55,7 +57,7 @@ export async function saveDebugging(
 export async function handleComment(
   input: OnCommentCreateRequest
 ): Promise<void> {
-  const { comment, author, post } = input;
+  const { comment, author } = input;
   if (!comment || !author?.id) return;
   const which = command(comment.body);
   if (!which) return;
@@ -69,7 +71,7 @@ export async function handleComment(
       await redis.set(optOutKey(user), '1');
       console.log(`${id}: ${user} opted out`);
       await answer(
-        `This bot don't reply to your posts in the future. To undo this, comment "!optin".`
+        `This bot won't reply to your posts in the future. To undo this, comment "!optin".`
       );
       return;
     case 'optin':
@@ -93,12 +95,14 @@ export async function handleComment(
 
   switch (which) {
     case 'delete':
-      if (user !== post?.authorId) {
-        console.log(`${id}: !delete from someone other than the post's author`);
+      if (!(await fromAuthorOrMod(input))) {
+        console.log(
+          `${id}: !delete from neither the post's author nor a moderator`
+        );
         return;
       }
       await parent.delete();
-      console.log(`${id}: deleted ${parent.id}, as the post's author asked`);
+      console.log(`${id}: deleted ${parent.id}, as ${user} asked`);
       return;
     case 'debug': {
       // (Only a reply to the post itself, the bot's one comment, has any.)
