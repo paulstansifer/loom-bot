@@ -30,17 +30,17 @@ over a second.)
 
 What the screenshots show, measured in eight different apps:
 
-- Every line, thin or heavy (the heavy ones are usually every fifth), is *centered* on one evenly
+- Every line, thin or heavy (the heavy ones are usually every fifth), is _centered_ on one evenly
   spaced lattice: the spacing between centers stays the same, to within about 0.3 px, across
   the heavy lines. So the cells beside a heavy line are smaller; the stride doesn't change. The
   spacing isn't a whole number of pixels (58.45 px, 43.5 px, …).
-- The border is the exception: it's drawn *inside* the grid, with its outer edge on the lattice.
+- The border is the exception: it's drawn _inside_ the grid, with its outer edge on the lattice.
 - Lines can be dark on light, light on dark, or colored. In "tile" apps there are no lines, just
   gaps between rounded tiles.
 - Next to a filled cell, a line merges into the fill, so instead of light-dark-light there's a
   single step. Between two filled cells, there's often no line at all.
 
-So the grid is found from *edges* (where one row of pixels differs from the next), not from
+So the grid is found from _edges_ (where one row of pixels differs from the next), not from
 light-dark-light lines: a line always leaves an edge on at least one side, unless it's between
 two filled cells. The steps:
 
@@ -60,7 +60,7 @@ two filled cells. The steps:
    best. A few are kept, since other things can repeat too.
 4. `measure`: each line of a lattice, from the outermost strong edges near where the lattice
    says it is. These measured lines, not the lattice, give the cells' bounds. The lattice only
-   says which line is which. (That would also cope with an app whose stride *does* jump at its
+   says which line is which. (That would also cope with an app whose stride _does_ jump at its
    heavy lines, if there is one.)
 5. `rectangle`: the biggest rectangle of cells whose border has an edge all the way around. The
    outside of the border always has an edge, even next to a filled cell. The lines inside it
@@ -182,6 +182,7 @@ it, between its two lines carried on upward, and a row's are to its left.
    `repair` works the clue out from the grid. Unless its strong ink (80% of the blob's contrast,
    leaving out an X's gray anti-aliased edges) is in two colors: then it's an X drawn over a
    digit, as in sample 15, whose X's are red, and the digit is found under it as above.
+
 4. Outward from the grid, glyphs are kept until there's a gap of more than a cell.
 5. Slivers and specks are dropped: anything narrower than 0.2 of the picture's median glyph
    height, or shorter than 0.6 of it. They're bits of lines and boxes, or of a digit's shadow.
@@ -218,6 +219,7 @@ lot of space.)
 
 Two digits side by side in a column's clues are certainly one number, so where the columns have
 any multi-digit numbers, they decide it:
+
 - The measure is the one those pairs agree on more closely: as their digits' widths vary, the
   typeface keeps one of them the same.
 - The threshold is at the biggest jump (as a ratio) between one row distance and the next,
@@ -301,12 +303,12 @@ These are read by themselves badly, but the bot reads them right, with the grid'
 clues (which is good, since a well-solved puzzle's are crossed out). It's a port of number-loom's
 `cells.rs`, changed for what the samples showed.
 
-1. Each cell's *middle* (60% of its width) is shrunk to 8x8 RGB. Staying in the middle leaves out
+1. Each cell's _middle_ (60% of its width) is shrunk to 8x8 RGB. Staying in the middle leaves out
    the grid's lines, and the counters some apps print in a cell's corner (sample 26).
 2. The looks are grouped: a look joins the first group within 0.08 (RMS) of its average, then
    everything moves to its nearest group. A picture's cells fall into a handful of groups (10–12
    in the worst samples, with gradients). Never more than 16.
-3. A group is *marked* if the middle of its average look differs from the color at the middles of
+3. A group is _marked_ if the middle of its average look differs from the color at the middles of
    its edges (where neither an X nor a dot reaches). That's by color, not brightness, so
    sample 7's one red X on the dark background counts.
 4. Colors within 0.12 of each other make a family (a photo's vignette is a gradient of
@@ -386,14 +388,14 @@ but the screenshot pipeline reads it fine.)
 border), which are darker than anything the person draws but a heavily scribbled fill:
 
 1. `inkMap` (`ink.ts`): how dark each point is, against the paper nearby (the brightest point
-   within about 50 px), which evens out shadows and vignetting. Darkness is the *brightest*
+   within about 50 px), which evens out shadows and vignetting. Darkness is the _brightest_
    channel's: print is black, so it's dark in every channel, while colored marker is bright in
    one, so red, pink or yellow fills fade, and the lines show through them. Pictures are first
    shrunk to at most 1600 px a side, so the settings in pixels mean the same everywhere.
 2. `crossings` (`lines.ts`): the picture is cut into 24 strips across the lines. In each, the ink
    is summed along the slant that makes its lines sharpest, which can change from one end of the
    strip to the other (perspective makes lines converge). Each line is a narrow ridge in that
-   profile: higher than the ink 4 px to *both* sides, which leaves out fills. A crossing's
+   profile: higher than the ink 4 px to _both_ sides, which leaves out fills. A crossing's
    heaviness is its height against the median of the 4 crossings each side.
 3. `chains`: crossings linked from strip to strip, each to the nearest one where the slants say
    it should be (within 4 px a strip), skipping up to 2 strips where a fill hides the line.
