@@ -648,6 +648,10 @@ People can give the bot commands in comments (Devvit's `onCommentCreate` trigger
 - "!optout", anywhere, stops the bot replying to the commenter's posts (kept in Redis, under
   their user ID), and "!optin" undoes that. The bot answers both, to say it's done it.
 
+The bot's profile picture is the app's icon, `bot-logo.png` (`marketingAssets.icon` in
+`devvit.json`; `bot-logo.xcf` is its GIMP source). It's uploaded with the app, by `devvit upload`
+or a playtest. Devvit wants it square, 256 to 1024 px, and warns that it's under 1024.
+
 Not yet known, since it needs a playtest on Devvit:
 
 - Whether the post `onPostCreate` hands over is far enough along for its pictures to be ready,

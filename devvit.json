@@ -24,5 +24,8 @@
   },
   "dev": {
     "subreddit": "number_loom_bot_dev"
+  },
+  "marketingAssets": {
+    "icon": "bot-logo.png"
   }
 }
