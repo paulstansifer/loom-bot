@@ -26,6 +26,7 @@ import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import sharp from 'sharp';
 
+import { drawBoxes } from '../src/bot/view.ts';
 import {
   cluster,
   distance,
@@ -377,23 +378,13 @@ async function drawGlyphs(
   glyphs: { glyph: Glyph; digit: string | undefined }[],
   path: string
 ) {
-  const { width, height } = raster;
-  const data = Uint8Array.from(raster.data);
-  const paint = (x: number, y: number, rgb: number[]) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) return;
-    data.set(rgb, (y * width + x) * 3);
-  };
-  for (const { glyph: g, digit } of glyphs) {
-    const rgb = digit === undefined ? [255, 0, 0] : [0, 200, 0];
-    for (let x = g.x0 - 1; x <= g.x1; x++) {
-      paint(x, g.y0 - 1, rgb);
-      paint(x, g.y1, rgb);
-    }
-    for (let y = g.y0 - 1; y <= g.y1; y++) {
-      paint(g.x0 - 1, y, rgb);
-      paint(g.x1, y, rgb);
-    }
-  }
+  const { width, height, data } = drawBoxes(
+    raster,
+    glyphs.map(({ glyph, digit }) => ({
+      glyph,
+      rgb: digit === undefined ? [255, 0, 0] : [0, 200, 0],
+    }))
+  );
   await sharp(Buffer.from(data), { raw: { width, height, channels: 3 } })
     .png()
     .toFile(path);

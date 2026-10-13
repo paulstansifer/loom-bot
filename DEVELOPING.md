@@ -604,11 +604,11 @@ clues in over a quarter of the lanes (then it's a misreading, and the guidance i
 who hasn't started). The debugging information shows it as text.
 
 ```
-node --experimental-strip-types scripts/reply-debug.ts PICTURE_OR_URL... [--status]
+node --experimental-strip-types scripts/reply-debug.ts PICTURE_OR_URL... [--status] [--out DIR]
 ```
 
 prints the reply a picture (a file, or a post's picture's URL) would get, and its debugging
-information.
+information. With `--out`, it writes the glyph view (see below) as `NAME-view.png`.
 
 Pictures are decoded in pure JavaScript (`src/ocr/decode.ts`), since `sharp` is native: PNG with
 `pngjs`, and JPEG with a copy of `jpeg-js`' decoder (`src/ocr/vendor/`). r/nonograms' pictures
@@ -636,6 +636,15 @@ People can give the bot commands in comments (Devvit's `onCommentCreate` trigger
   and the subreddit's moderators, as for "!delete". And a post gets
   only one such answer, whichever command asks and whoever it's from: a counter in Redis, under
   the post's ID, says it's been given.
+
+  If the bot got as far as the clues' glyphs, the answer links to the glyph view (`view.ts`):
+  the picture they were read from (straightened, for a photo of paper), cut down to the grid
+  and its clues, with each glyph boxed, green in a lane whose clues fit, red in one whose don't.
+  It's drawn when it's asked for, not when the post is made, since few posts are asked about:
+  the picture's URL is kept in Redis with the debugging information, and it's downloaded and
+  read again. (So it's from the bot as it is then, which may not be as it was.) It's encoded
+  with `pngjs` and uploaded with Devvit's `media.upload`, as a `data:` URL. If that goes wrong,
+  the answer is given without it.
 - "!optout", anywhere, stops the bot replying to the commenter's posts (kept in Redis, under
   their user ID), and "!optin" undoes that. The bot answers both, to say it's done it.
 
@@ -645,3 +654,5 @@ Not yet known, since it needs a playtest on Devvit:
   and whether `Post.gallery`'s URLs are the ones expected.
 - Whether the domains for `fetch` in `devvit.json` (`i.redd.it` and `preview.redd.it`) need
   Reddit's approval before the app is published. (They work in a playtest.)
+- Whether `media.upload` takes a `data:` URL, and one as big as a photo of paper's glyph view
+  (sample 13's is a 3.4 MB PNG; a screenshot's is 0.5 to 1.3 MB).

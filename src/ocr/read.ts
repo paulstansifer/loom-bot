@@ -118,11 +118,7 @@ export function consistency(reading: Reading): Consistency {
   const total = (lanes: number[][]) =>
     lanes.flat().reduce((sum, n) => sum + (Number.isNaN(n) ? 0 : n), 0);
   const misfitsIn = (lanes: number[][], length: number) =>
-    lanes.filter(
-      (l) =>
-        l.some(Number.isNaN) ||
-        l.reduce((sum, n) => sum + n, 0) + l.length - 1 > length
-    ).length;
+    lanes.filter((l) => !fits(l, length)).length;
   const [columnTotal, rowTotal] = [total(columns), total(rows)];
   const misfits = misfitsIn(columns, grid.rows) + misfitsIn(rows, grid.cols);
   const empty = [...columns, ...rows].filter((l) => l.length === 0).length;
@@ -137,6 +133,14 @@ export function consistency(reading: Reading): Consistency {
       misfits === 0 &&
       empty <= MOST_EMPTY * (columns.length + rows.length),
   };
+}
+
+/** Whether a lane's clues (with a cell between each) fit in it, and have no "x" in them. */
+export function fits(clues: number[], length: number): boolean {
+  return (
+    !clues.some(Number.isNaN) &&
+    clues.reduce((sum, n) => sum + n, 0) + clues.length - 1 <= length
+  );
 }
 
 /** A lane's clues as text. No clues reads the same as a single 0, and `NaN` is `?`. */

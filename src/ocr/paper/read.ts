@@ -15,7 +15,8 @@ import { PAPER } from './settings.ts';
 export type PaperReading =
   | {
       ok: true;
-      /** The grid, in the straightened picture. */
+      /** The straightened picture, and the grid in it. */
+      raster: Raster;
       grid: Grid;
       reading: Reading;
       states: State[];
@@ -37,5 +38,12 @@ export function readPaper(
     timed,
     PAPER
   );
-  return { ok: true, grid: straight.grid, reading, states, filled };
+  return {
+    ok: true,
+    raster: straight.raster,
+    grid: straight.grid,
+    reading,
+    states,
+    filled,
+  };
 }

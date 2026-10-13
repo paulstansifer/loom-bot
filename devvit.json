@@ -16,6 +16,7 @@
   "permissions": {
     "reddit": true,
     "redis": true,
+    "media": true,
     "http": {
       "enable": true,
       "domains": ["i.redd.it", "preview.redd.it"]

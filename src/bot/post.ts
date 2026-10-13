@@ -34,7 +34,10 @@ export async function handlePost(id: T3): Promise<void> {
   }
   if (post.authorId && (await optedOut(post.authorId))) {
     console.log(`${id}: its author opted out`);
-    await saveDebugging(id, 'I skipped this post because its author opted out.');
+    await saveDebugging(
+      id,
+      'I skipped this post because its author opted out.'
+    );
     return;
   }
   // A crosspost's pictures are in the post it's a copy of.
@@ -63,7 +66,7 @@ export async function handlePost(id: T3): Promise<void> {
     ]);
   }
   console.log(`${id}: ${reply.status} (${url})`);
-  await saveDebugging(id, reply.debugging);
+  await saveDebugging(id, reply.debugging, url);
   if (reply.text)
     await reddit.submitComment({ id, text: reply.text, runAs: 'APP' });
 }

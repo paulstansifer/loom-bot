@@ -49,13 +49,17 @@ export type Reply = {
   text?: string;
   /** Markdown: what was read, and how long it took, for whoever asks. */
   debugging: string;
-  /** The clues read, if it got that far. */
+  /** The clues read, if it got that far, and the picture they were read from (straightened, for
+   * a photo of paper). */
   reading?: Reading;
+  picture?: Raster;
 };
 
 /** A reading of the picture, as a screenshot or as a photo of paper. */
 type Attempt = {
   kind: 'screenshot' | 'paper';
+  /** The picture read (straightened, for a photo of paper), and the grid in it. */
+  raster: Raster;
   grid: Grid;
   reading: Reading;
   states: State[];
@@ -102,10 +106,19 @@ export function replyTo(raster: Raster): Reply {
           return `no grid found: ${shot}; as a photo of paper, ${photo}`;
         })();
   if (typeof attempt === 'string') return debug(attempt, [picture], timings);
-  const { kind, grid, reading, states, filled, facts, problem } = attempt;
+  const {
+    kind,
+    raster: read,
+    grid,
+    reading,
+    states,
+    filled,
+    facts,
+    problem,
+  } = attempt;
   // (The first fact is about the grid; the picture goes in front of it, as one line.)
   facts[0] = `${picture} ${facts[0]}`;
-  if (problem) return debug(problem, facts, timings, reading);
+  if (problem) return debug(problem, facts, timings, reading, read);
 
   const puzzle = blackAndWhite(reading.rows, reading.columns);
   const cells = stateCells(states);
@@ -133,11 +146,18 @@ export function replyTo(raster: Raster): Reply {
     )
   );
   if (g === 'no-solution')
-    return debug('the clues read have no solution', facts, timings, reading);
+    return debug(
+      'the clues read have no solution',
+      facts,
+      timings,
+      reading,
+      read
+    );
   const status = `read ${puzzle.width}x${puzzle.height}${kind === 'paper' ? ' (paper)' : ''}: ${g.solved}`;
   return {
     status,
     reading,
+    picture: read,
     text: fit(guidanceToMessage(puzzle, g, 0, OPERATOR)),
     debugging: debugging(status, facts, timings, reading),
   };
@@ -153,6 +173,7 @@ function asScreenshot(raster: Raster, timed: Timed): Attempt | string {
   const read = readWithGrid(raster, grid, timed);
   return judged({
     kind: 'screenshot',
+    raster,
     grid,
     ...read,
     facts: [
@@ -199,11 +220,13 @@ export function debug(
   status: string,
   facts: string[],
   timings: string[] = [],
-  reading?: Reading
+  reading?: Reading,
+  picture?: Raster
 ): Reply {
   return {
     status,
     ...(reading ? { reading } : {}),
+    ...(picture ? { picture } : {}),
     debugging: debugging(status, facts, timings, reading),
   };
 }

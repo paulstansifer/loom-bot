@@ -5,6 +5,8 @@
  * - "!whynot", as a top-level comment on a post, gets what the bot made of it: what was read, how
  *   long it took, and what went wrong (saved when the bot looked at the post, for
  *   `DEBUGGING_DAYS`). The bot doesn't reply to a post it can't read, so this is how to find out.
+ *   If the bot got as far as finding the clues' glyphs, there's a link to a picture of them
+ *   (`view.ts`), drawn and uploaded then.
  * - "!debug", replying to the bot's reply to a post, gets the same. A post only ever gets one
  *   such answer.
  * - "!optout", anywhere, stops the bot replying to their posts, and "!optin" undoes that.
@@ -12,9 +14,13 @@
  * The first three are only for the post's author and the subreddit's moderators.
  */
 
-import { reddit, redis } from '@devvit/web/server';
+import { media, reddit, redis } from '@devvit/web/server';
 import type { OnCommentCreateRequest } from '@devvit/web/shared';
 import type { T1, T2, T3 } from '@devvit/shared-types/tid.js';
+
+import { downloadPicture } from './picture.ts';
+import { replyTo } from './reply.ts';
+import { encodePng, glyphView } from './view.ts';
 
 type Command = 'delete' | 'debug' | 'whynot' | 'optout' | 'optin';
 
@@ -38,19 +44,26 @@ export function command(body: string): Command | undefined {
 const optOutKey = (user: T2) => `optout:${user}`;
 const debuggingKey = (post: T3) => `debugging:${post}`;
 const explainedKey = (post: T3) => `explained:${post}`;
+const pictureKey = (post: T3) => `picture:${post}`;
+
+const viewLink = (url: string) => `[Glyph detection debugging image](${url})`;
 
 export async function optedOut(user: T2): Promise<boolean> {
   return (await redis.exists(optOutKey(user))) > 0;
 }
 
-/** Keeps `debugging` for whoever asks about `post`. */
+/** Keeps `debugging` for whoever asks about `post`, and where its picture is, if the bot read
+ * one, to draw the glyph view from. */
 export async function saveDebugging(
   post: T3,
-  debugging: string
+  debugging: string,
+  picture?: string
 ): Promise<void> {
-  await redis.set(debuggingKey(post), debugging, {
-    expiration: new Date(Date.now() + DEBUGGING_DAYS * 24 * 60 * 60 * 1000),
-  });
+  const expiration = new Date(
+    Date.now() + DEBUGGING_DAYS * 24 * 60 * 60 * 1000
+  );
+  await redis.set(debuggingKey(post), debugging, { expiration });
+  if (picture) await redis.set(pictureKey(post), picture, { expiration });
 }
 
 /** Does what a new comment says to, if it's a command. */
@@ -149,10 +162,36 @@ async function explain(input: OnCommentCreateRequest, post: T3): Promise<void> {
   }
   await redis.expire(explainedKey(post), DEBUGGING_DAYS * 24 * 60 * 60);
   try {
-    await reddit.submitComment({ id, text: debugging, runAs: 'APP' });
+    const view = await uploadGlyphView(post);
+    const text = view ? `${debugging}\n\n${viewLink(view)}` : debugging;
+    await reddit.submitComment({ id, text, runAs: 'APP' });
   } catch (e) {
     // Nobody was told, so the next one to ask still can be.
     await redis.del(explainedKey(post));
     throw e;
+  }
+}
+
+/**
+ * The glyph view (`view.ts`) of `post`'s picture, uploaded, if the bot read one, and got as far as
+ * the glyphs. The picture is read again for it, rather than every post's being uploaded in case
+ * someone asks.
+ */
+async function uploadGlyphView(post: T3): Promise<string | undefined> {
+  const url = await redis.get(pictureKey(post));
+  if (!url) return undefined;
+  try {
+    const { reading, picture } = replyTo(await downloadPicture(url));
+    if (!reading || !picture) return undefined;
+    const png = Buffer.from(encodePng(glyphView(picture, reading)));
+    const { mediaUrl } = await media.upload({
+      url: `data:image/png;base64,${png.toString('base64')}`,
+      type: 'image',
+    });
+    return mediaUrl;
+  } catch (e) {
+    // The debugging information is still worth having without it.
+    console.error(`${post}: no glyph view: ${String(e)}`);
+    return undefined;
   }
 }
