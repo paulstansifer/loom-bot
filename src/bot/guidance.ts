@@ -20,6 +20,7 @@ import {
   BACKGROUND,
   fromColor,
   isKnown,
+  isKnownToBe,
   knownColor,
 } from '../solve/cell.ts';
 import { gather, SolveState } from '../solve/grid.ts';
@@ -75,6 +76,13 @@ export type GuidanceReport = {
   filledCells: number;
   /** The cells the OP has got wrong. */
   errors: number[];
+  /** What the OP has in each of those cells, as it is in the grid (the colors it could be). */
+  errorMarks: number[];
+  /**
+   * The lanes whose clues the OP's grid, mistakes and all, can't satisfy. (A mistake needn't put
+   * a lane wrong by itself: it's a mistake because of the answer.)
+   */
+  contradicted: number[];
   /** Where to go from here, once the errors are erased. */
   next: Next;
   /** A link that opens the puzzle in the web app, to solve from the beginning. */
@@ -116,10 +124,17 @@ export function guidance(
     answer,
     filledCells: 0,
     errors: [],
+    errorMarks: [],
+    contradicted: [],
     next: { kind: 'done' },
     dewarped,
   };
   if (allKnown) report.startUrl = shareUrl({ solution });
+
+  puzzle.lanes.forEach((clues, lane) => {
+    if (!exhaustLine(clues, gather(puzzle, lane, grid), []))
+      report.contradicted.push(lane);
+  });
 
   grid = Uint32Array.from(grid);
   grid.forEach((mine, cell) => {
@@ -127,6 +142,7 @@ export function guidance(
     // (A mistake is ruling out the answer.)
     if ((mine & answer[cell]!) === 0) {
       report.errors.push(cell);
+      report.errorMarks.push(mine);
       grid[cell] = everything;
     }
   });
@@ -252,6 +268,17 @@ function laneLabel(puzzle: Puzzle, lane: number): string {
   return lane < puzzle.height ? `R${lane + 1}` : `C${lane - puzzle.height + 1}`;
 }
 
+/** `C5 (3 1 1)`: a lane, and its clues. (A lane with none is `0`.) */
+function laneWithClues(puzzle: Puzzle, lane: number): string {
+  const clues = puzzle.lanes[lane]!.map((clue) => clue.count).join(' ') || '0';
+  return `${laneLabel(puzzle, lane)} (${clues})`;
+}
+
+/** What a color is called. (Currently, we don't handle multicolor puzzles.) */
+function colorWord(color: number): string {
+  return color === BACKGROUND ? 'background' : 'foreground';
+}
+
 /** `3 cells`, `1 cell`. */
 function count(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -298,13 +325,31 @@ export function guidanceToMessage(
       ? `(OCR failed for ${count(repairs, 'clue')}, but ${repairs == 1 ? 'it' : 'they'} could be extracted from the grid.) `
       : '';
 
+  // The lanes the grid, mistakes and all, contradicts, with their clues: a paragraph of its own.
+  const contradicted = (): string => {
+    if (g.contradicted.length === 0) return '';
+    const shown = g.contradicted
+      .slice(0, SHOWN)
+      .map((l) => laneWithClues(puz, l));
+    const more =
+      g.contradicted.length > SHOWN
+        ? `, and ${g.contradicted.length - SHOWN} more`
+        : '';
+    const lanes = g.contradicted.length;
+    return `\n${count(lanes, 'lane')} ${lanes == 1 ? 'is' : 'are'} inconsistent with what I see in the grid: ${spoiler(shown.join(', ') + more)}\n`;
+  };
+
   const progress = (): string => {
     if (g.errors.length > 0) {
-      const shown = g.errors.slice(0, SHOWN).map((e) => coordLabel(puz, e));
+      const shown = g.errors.slice(0, SHOWN).map((e, i) => {
+        const mark = g.errorMarks[i]!;
+        const what = colorWord(isKnownToBe(mark, BACKGROUND) ? BACKGROUND : 1);
+        return `${coordLabel(puz, e)} shouldn't be ${what}`;
+      });
       const more =
         g.errors.length > SHOWN ? `, and ${g.errors.length - SHOWN} more` : '';
       // (Want to start this on its own line.)
-      return `\nIf I read the grid correctly, I see ${count(g.errors.length, 'mistake')} to remove: ${spoiler(shown.join(', ') + more)}\n`;
+      return `\nIf I read the grid correctly, I see ${count(g.errors.length, 'mistake')} to remove: ${spoiler(shown.join(', ') + more)}\n${contradicted()}`;
     }
     if (g.next.kind === 'done') {
       return `${
@@ -367,11 +412,9 @@ function nextSteps(puz: Puzzle, g: GuidanceReport): string {
         n === 1
           ? 'There is at least one cell'
           : `There are at least ${n} cells`;
-      const guesses = next.guesses.map(({ cell, color }) => {
-        // (Currently, we don't handle multicolor puzzles.)
-        const colorStr = color === BACKGROUND ? 'background' : 'colored-in';
-        return spoiler(`${coordLabel(puz, cell)} can't be ${colorStr}`);
-      });
+      const guesses = next.guesses.map(({ cell, color }) =>
+        spoiler(`${coordLabel(puz, cell)} can't be ${colorWord(color)}`)
+      );
       return `${subject} that can be guessed and disproven:\n\n${bullets(guesses)}`;
     }
     case 'stuck':

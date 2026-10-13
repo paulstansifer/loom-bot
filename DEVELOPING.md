@@ -595,7 +595,10 @@ that's the crosspost, not the original.
 which `glyph-debug.ts` uses too). If that finds no grid, or clues that don't make sense, it tries again as a
 photo of paper (see "Photos of paper"). If they make sense, it replies with guidance (`guidance.ts`, a
 port of the Rust bot's `guidance.rs`, whose message wording is human-written: don't change it).
-That includes a link that opens the puzzle in the web app. When the clues don't make sense, or
+That includes a link that opens the puzzle in the web app. Not in the Rust bot: each mistake is
+given with what was read in its cell (so a misreading can be told from a mistake), and the lanes
+that the grid as read contradicts are given with their clues. (A mistake needn't contradict a
+lane: it's a mistake because the answer says so.) When the clues don't make sense, or
 no grid is found, it doesn't reply at all. Either way, there's debugging information too: what was read, how long
 it took, and what went wrong. It's kept for the post's author, or a moderator, to ask for with
 "!whynot" or "!debug" (see below). The person's

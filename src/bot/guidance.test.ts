@@ -78,6 +78,9 @@ void test('mistakes are found and erased', () => {
   const p = puzzle(SPIRAL);
   const g = report(p, ['#####', 'x#xxx', '#x###', '#xxx#', '#####']);
   assert.deepEqual(g.errors, [cell(p, 0, 1), cell(p, 1, 1)]);
+  assert.deepEqual(g.errorMarks, [fromColor(BACKGROUND), fromColor(BLACK)]);
+  // Row 2 ("1") has one cell filled in, so it's the columns ("5", "1 1") that can't be.
+  assert.deepEqual(g.contradicted, [p.height, p.height + 1]);
   assert.equal(g.next.kind, 'lines');
   if (g.next.kind !== 'lines') return;
   // Row 2 ("1") could be either of them, but each column settles its own.
@@ -88,6 +91,16 @@ void test('mistakes are found and erased', () => {
     [cell(p, 0, 1), BLACK],
     [cell(p, 1, 1), BACKGROUND],
   ]);
+});
+
+void test('a mistake that no lane rules out by itself', () => {
+  const p = puzzle(SPIRAL);
+  // Row 2's "1" and column 2's "1 1" could each have it; it's only the answer that says not.
+  const g = report(p, ['.....', '.#...', '.....', '.....', '.....']);
+  assert.deepEqual(g.errors, [cell(p, 1, 1)]);
+  assert.deepEqual(g.contradicted, []);
+  // (So the message has no lane with its clues.)
+  assert.doesNotMatch(guidanceToMessage(p, g, 0), /[RC]\d+ \(\d/);
 });
 
 void test('finished', () => {
@@ -206,7 +219,15 @@ void test('the message', () => {
       'This looks like a 5x5 puzzle, solvable with line logic. \n'
     )
   );
-  assert.ok(message.includes('there are 2 mistakes to remove: >!R2C1, R2C2!<'));
+  // Each mistake, with what was read there, and the lanes they put wrong, with their clues.
+  // (Not the wording, which is a human's to change: just that the two, one crossed out and one
+  // filled in, are told apart.)
+  const read = /2 mistakes to remove: >!R2C1 ([^,]*), R2C2 ([^,]*)!</.exec(
+    message
+  );
+  assert.ok(read);
+  assert.notEqual(read[1], read[2]);
+  assert.ok(message.includes('>!C1 (5), C2 (1 1)!<'));
   assert.ok(
     message.includes(
       `[Start from scratch](${g.startUrl}) or [continue from here](`
