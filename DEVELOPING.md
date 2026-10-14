@@ -94,6 +94,12 @@ rectangle (`outer`):
   edge, less twice the digits inside. Ties go to the bigger rectangle, so a side with no clues
   goes as far as the lines. (Sample 19's last two columns have their nearest clue cells crossed
   out.)
+- A side is only brought in from the edge of the biggest rectangle to where there are clues:
+  digits just outside it in 60% of its lanes. Without that, one thing in the grid that looks
+  like a digit brings a side in to just short of it, since outside it counts for the rectangle
+  and inside against it: one of sample 33's filled cells, in column 11 of 25, made its grid
+  10x25. (Where a side is rightly brought in, in samples 12, 19, 26 and 33, at least 90% of
+  its lanes have a digit.)
 - It's only used if at least 60% of the lanes on one side have a digit just outside. Otherwise,
   a few stray digit-like things in a picture (or a photo) make a small rectangle that fits
   them. Sample 15's row clues are in long boxes whose lines carry on the grid's horizontal
@@ -163,6 +169,21 @@ it, between its two lines carried on upward, and a row's are to its left.
    sample 12's crossed-out "10"s fill their cells, at the end of the lane, and were lost. So a
    color to either side also has to be the commonest over two cells (as another background
    would be), and there have to be two cells' length to that side.
+
+   Unless the clue is in a box of its own (`findBoxes`): sample 34's clues are white on black
+   squares, a little apart, on white. With boxes about a cell long and gaps between them, which
+   color is commonest changes from place to place, and nothing was read at all. But a box
+   encloses its clue, and a clue never encloses its background. So a box is an area of one flat
+   color, about a cell across both ways (0.6 to 1.5), that with what it encloses nearly fills
+   its bounds, and by itself fills most of them (a bold "0" encloses its middle, but it's
+   narrower, and mostly not ink). Past its ends there has to be another color: a clue's cell
+   between lines (samples 12 and 19) has another like it past the line, and a short lane that's
+   all one area has nothing past either end. Inside a box, the background is the box's color,
+   and the box's pixels don't count toward the background outside it. Step 4's gap is measured
+   to the box, not the digit: 34's digits are further from the grid than a cell, but their
+   boxes aren't. This finds 34's 77 boxes, and one or two stray ones in a few other samples,
+   which change nothing that's read in the checked ones. (Sample 25, whose grid is found wrong,
+   gets 15.)
 2. Blobs are the 8-connected pixels that differ from the background even faintly. Each blob is
    then cut again, at 40% of its own contrast. That way a dimmed clue is cut the same way as the
    rest, and faint fringes don't join neighboring digits. With one fixed threshold, dimmed
@@ -273,7 +294,7 @@ but 12 and 19:
 - 1802 of the 1805 glyphs in those lanes are in a group named right. The ones that aren't are
   sample 3's two shadowed digits, and sample 24's one "8", named "0" by 0.001. Elsewhere, the
   nearest template of another digit is at least 0.018 further away.
-- It takes 20–270 ms a picture.
+- It takes 40–320 ms a picture (30 to 50 ms of it looking for boxes).
 
 The row and column totals of a checked `.clues` file should agree. Two didn't (3 and 15), and
 in both, the picture showed the reading was right and the file was wrong.
@@ -282,8 +303,8 @@ A picture whose `.clues` file is unchecked is read without a score. Instead, it 
 what it read is consistent: the rows' and columns' totals agree, every lane's clues fit in it,
 and no more than a fifth of the lanes are empty. That says which files are worth checking by
 hand. It also says how the clues read with the grid's help solve. With `--out`, it writes what
-it read to `NAME.clues` there, to start from. Of the unchecked samples, only 18 reads
-consistently, and with the grid's help, its clues solve by line logic. Where its reading differed from its file (written by
+it read to `NAME.clues` there, to start from. Of the unchecked samples, only 18, 33 and 34 read
+consistently, and with the grid's help, their clues solve by line logic. Where its reading differed from its file (written by
 `ocr-clues`, whose totals don't agree), the picture agreed with the reading.
 
 ### Known failures
@@ -339,7 +360,8 @@ Not handled:
   cell is too few to be a family.
 - Checking the cell groups' meanings against the clues, trying other meanings for them when
   many lanes contradict. For now the bot only stops using the progress if over a quarter of the
-  lanes contradict it, or the picture isn't straight (`reply.ts`).
+  lanes contradict it (and it isn't just the person's mistakes: see "The bot", below), or the
+  picture isn't straight (`reply.ts`).
 
 `repair` (`repairLane`, `repair`; a port of `repair.rs`) works out clues that couldn't be read
 (`NaN`, from marks named "x" where a digit should be) from the state: a fully decided lane's
@@ -372,6 +394,12 @@ solves; the lanes I checked against the picture were right. It renames one group
 samples 12, 19 and 24. Of the other checked samples, it only changes sample 3 (a known
 failure), where it takes its "9"s as crossed out. Since 258 of sample 12's clues are copied from the grid, any mistakes the person made in
 those lanes are copied into them, unseen.
+
+Clues that make sense as read are left alone (`sound`): if they fit, their totals agree, and
+they have a solution (found within 250 ms), they're almost certainly right, and whatever the
+grid contradicts is the person's mistakes. Sample 33's clues are read right, but its grid has
+43 cells wrong, in 14 lanes, and taking its "1"s as crossed out agreed with that better, which
+left clues that couldn't be worked out, and no reply.
 
 ## Photos of paper (`src/ocr/paper/`)
 
@@ -604,7 +632,11 @@ it took, and what went wrong. It's kept for the post's author, or a moderator, t
 "!whynot" or "!debug" (see below). The person's
 progress in the grid is read (see above) and the guidance is for it, unless it contradicts the
 clues in over a quarter of the lanes (then it's a misreading, and the guidance is for someone
-who hasn't started). The debugging information shows it as text.
+who hasn't started). Unless, again, the whole answer is known, and no more than 15% of the cells
+the person has decided disagree with it (`guidanceFor`): then it's the person who went wrong.
+Sample 33's progress contradicts 14 lanes of 50, but only 43 of its 581 decided cells are wrong,
+where cells misread (X's as filled, say) would all be. (No sample's progress has been misread
+that way, so the 15% is a guess.) The debugging information shows it as text.
 
 ```
 node --experimental-strip-types scripts/reply-debug.ts PICTURE_OR_URL... [--status] [--out DIR]

@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { decode, samples } from '../ocr/samples.ts';
-import { debug, replyTo } from './reply.ts';
+import { anything, BACKGROUND, fromColor } from '../solve/cell.ts';
+import { puzzleFromPicture } from '../solve/puzzle.ts';
+import { debug, guidanceFor, replyTo } from './reply.ts';
 
 void test('a debugging reply says what went wrong', () => {
   const reply = debug('no grid found: just a cat', ['Picture: 10x10 picture.']);
@@ -19,6 +21,47 @@ void test('a blank picture has no puzzle', () => {
   });
   assert.match(reply.status, /^no grid found/);
   assert.equal(reply.text, undefined);
+});
+
+/** `#` filled in, `x` crossed out, `.` undecided. */
+function progress(rows: string[]): Uint32Array {
+  return Uint32Array.from(rows.join(''), (ch) =>
+    ch === '#' ? fromColor(1) : ch === 'x' ? fromColor(BACKGROUND) : anything(2)
+  );
+}
+
+/** A spiral, which line logic solves. */
+const SPIRAL = puzzleFromPicture(
+  2,
+  ['#####', '#....', '#.###', '#...#', '#####'].map((row) =>
+    [...row].map((ch) => (ch === '#' ? 1 : BACKGROUND))
+  )
+);
+
+void test('a few mistakes that put many lanes wrong are still progress', () => {
+  // Two cells wrong, of 25, but they contradict 3 lanes of 10.
+  const cells = progress(['#####', '#xxxx', 'x####', '#xxx#', '#####']);
+  const { report, believed, broken } = guidanceFor(SPIRAL, cells, true, false);
+  assert.equal(broken, 3);
+  assert.ok(believed);
+  assert.ok(report !== 'no-solution');
+  assert.deepEqual(report.errors, [10, 11]);
+});
+
+void test('progress that mostly disagrees with the answer was misread', () => {
+  // (Filled and crossed out, the wrong way around.)
+  const cells = progress(['xxxxx', 'x####', 'x#xxx', 'x###x', 'xxxxx']);
+  const { report, believed } = guidanceFor(SPIRAL, cells, true, false);
+  assert.ok(!believed);
+  assert.ok(report !== 'no-solution');
+  assert.deepEqual(report.errors, []);
+  assert.equal(report.filledCells, 0);
+});
+
+void test("a crooked picture's progress isn't believed, right or not", () => {
+  const cells = progress(['#####', '#xxxx', '#x###', '#xxx#', '#####']);
+  assert.ok(!guidanceFor(SPIRAL, cells, false, false).believed);
+  assert.ok(guidanceFor(SPIRAL, cells, true, false).believed);
 });
 
 // The sample pictures, if they're here (see `src/ocr/samples.ts`). Every checked one but the

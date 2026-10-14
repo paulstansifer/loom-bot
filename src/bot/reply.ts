@@ -6,7 +6,8 @@
  * The person's progress in the grid is read too (`cells.ts`), and clues that couldn't be read,
  * or seem to be crossed out (`explain.ts`), are worked out from it (`repair.ts`); clues that seem
  * misnamed are named again. If the progress contradicts the clues in many lanes, it was probably
- * misread, and the guidance is for someone who hasn't started.
+ * misread, and the guidance is for someone who hasn't started. Unless the answer is known, and
+ * the progress mostly agrees with it: then it's the person who went wrong, in many lanes.
  *
  * A picture is read as a screenshot first, and only if that doesn't work, as a photo of paper
  * (`src/ocr/paper/`), which has its own way of finding the grid.
@@ -25,8 +26,12 @@ import { readPaper } from '../ocr/paper/read.ts';
 import type { Raster } from '../ocr/raster.ts';
 import { cluesText, consistency, type Reading } from '../ocr/read.ts';
 import { blankGrid } from '../solve/grid.ts';
-import { blackAndWhite } from '../solve/puzzle.ts';
-import { guidance, guidanceToMessage } from './guidance.ts';
+import { blackAndWhite, type Puzzle } from '../solve/puzzle.ts';
+import {
+  guidance,
+  type GuidanceReport,
+  guidanceToMessage,
+} from './guidance.ts';
 
 /** Fewer lanes than this with clues in them, in either direction, isn't a puzzle. */
 const MIN_LANES = 4;
@@ -35,6 +40,11 @@ const MIN_LANES = 4;
  * (in a screenshot, or a photo of paper). */
 const MOST_CONTRADICTED = 0.25;
 const PAPER_MOST_CONTRADICTED = 0.25;
+/** Unless the whole answer is known, and no more than this fraction of the cells the person has
+ * decided disagree with it. (Cells misread, say X's as filled, would disagree far more: every
+ * cell of that kind. Sample 33's progress contradicts 14 lanes of 50, but only 43 of its 581
+ * decided cells are wrong.) */
+const MOST_WRONG = 0.15;
 
 /** Reddit's limit on a comment's length is 10,000 characters. */
 const MAX_REPLY = 9500;
@@ -121,12 +131,18 @@ export function replyTo(raster: Raster): Reply {
   if (problem) return debug(problem, facts, timings, reading, read);
 
   const puzzle = blackAndWhite(reading.rows, reading.columns);
-  const cells = stateCells(states);
-  const broken = contradicted(puzzle, cells).length;
-  const believed =
-    kind === 'paper'
-      ? broken <= PAPER_MOST_CONTRADICTED * puzzle.lanes.length
-      : grid.pixelPerfect && broken <= MOST_CONTRADICTED * puzzle.lanes.length;
+  const {
+    report: g,
+    believed,
+    broken,
+  } = timed('guidance', () =>
+    guidanceFor(
+      puzzle,
+      stateCells(states),
+      kind === 'paper' || grid.pixelPerfect,
+      kind === 'paper'
+    )
+  );
   facts.push(
     `Progress read (${believed ? 'used' : 'not used'}; ${broken} lanes contradict it; ` +
       `${filled} unreadable clues worked out from it):\n\n${cellsText(
@@ -136,14 +152,6 @@ export function replyTo(raster: Raster): Reply {
         .split('\n')
         .map((l) => `    ${l}`)
         .join('\n')}`
-  );
-  const g = timed('guidance', () =>
-    guidance(
-      puzzle,
-      believed ? cells : blankGrid(puzzle),
-      undefined,
-      kind === 'paper'
-    )
   );
   if (g === 'no-solution')
     return debug(
@@ -161,6 +169,39 @@ export function replyTo(raster: Raster): Reply {
     text: fit(guidanceToMessage(puzzle, g, 0, OPERATOR)),
     debugging: debugging(status, facts, timings, reading),
   };
+}
+
+/**
+ * The guidance for someone who's gotten as far as `cells` in `puzzle`, if that progress is
+ * believed, and otherwise for someone who hasn't started; and how many lanes it contradicts.
+ * `straight` says whether the picture is (a crooked one's cells aren't believed at all), and
+ * `paper` whether it's a photo of paper.
+ */
+export function guidanceFor(
+  puzzle: Puzzle,
+  cells: Uint32Array,
+  straight: boolean,
+  paper: boolean
+): {
+  report: GuidanceReport | 'no-solution';
+  believed: boolean;
+  broken: number;
+} {
+  const broken = contradicted(puzzle, cells).length;
+  const most = paper ? PAPER_MOST_CONTRADICTED : MOST_CONTRADICTED;
+  const guide = (progress: Uint32Array) =>
+    guidance(puzzle, progress, undefined, paper);
+  if (straight) {
+    const report = guide(cells);
+    if (
+      broken <= most * puzzle.lanes.length ||
+      (report !== 'no-solution' &&
+        (report.solved === 'line-logic' || report.solved === 'search') &&
+        report.errors.length <= MOST_WRONG * report.filledCells)
+    )
+      return { report, believed: true, broken };
+  }
+  return { report: guide(blankGrid(puzzle)), believed: false, broken };
 }
 
 type Timed = <T>(what: string, f: () => T) => T;

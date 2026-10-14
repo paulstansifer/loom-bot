@@ -61,6 +61,17 @@ void test('a misnamed group is renamed to its second-nearest template', () => {
   assert.deepEqual(explained.rows, [[1, 1], [], [3]]);
 });
 
+void test("clues that make sense aren't changed to suit a grid full of mistakes", () => {
+  // The clues are right (a plus sign), but the person has filled in the corners instead, so
+  // every lane is contradicted. Taking the "1"s as crossed out would agree with that better.
+  const states = cells(['#x#', 'xxx', '#x#']);
+  const r = reading([[0], [1], [0]], [[0], [1], [0]], ['1', '3'], ['4', '8']);
+  const { reading: explained, struck, renamed } = explainGroups(r, states, 3);
+  assert.deepEqual(struck, []);
+  assert.deepEqual(renamed, []);
+  assert.equal(explained, r);
+});
+
 void test('clues that make sense are left alone', () => {
   // Even though the grid could say what they are.
   const states = cells(['#x#', 'xxx', '###']);

@@ -25,8 +25,8 @@ import type { Raster } from './raster.ts';
 const MAX_DISTANCE = 0.3;
 /** How much a digit inside the grid counts against it, against one just outside its edge. */
 const INSIDE_PENALTY = 2;
-/** The fraction of a side's lanes that must have a digit just outside it, on one side at
- * least, for there to be clues there. */
+/** The fraction of a side's lanes that must have a digit just outside it for there to be clues
+ * there. */
 const CLUED = 0.6;
 /** The fewest cells across a grid. */
 const MIN_CELLS = 4;
@@ -90,6 +90,11 @@ export type Bounds = {
  * The rectangle of `cells` (with `top`, etc. counting lines) that best fits the digits around
  * it: the most lanes with a digit just outside an edge, less `INSIDE_PENALTY` for each digit
  * inside. `undefined` if no lane has one outside.
+ *
+ * A side is only brought in from the edge of `cells` to where there are clues: digits just
+ * outside it in `CLUED` of its lanes. Otherwise, one thing in the grid that looks like a digit
+ * brings a side in to just short of it: one of sample 33's filled cells, in column 11 of 25, did,
+ * since a digit outside counts for the rectangle, and one inside against it.
  */
 export function boundsByDigits(cells: boolean[][]): Bounds | undefined {
   const rows = cells.length;
@@ -110,13 +115,22 @@ export function boundsByDigits(cells: boolean[][]): Bounds | undefined {
   let bestScore = 0;
   for (let top = 0; top + MIN_CELLS <= rows; top++) {
     for (let bottom = top + MIN_CELLS; bottom <= rows; bottom++) {
+      const tall = CLUED * (bottom - top);
       for (let left = 0; left + MIN_CELLS <= cols; left++) {
         const before = left > 0 ? all(top, bottom, left - 1, left) : 0;
+        if (left > 0 && before < tall) continue;
         for (let right = left + MIN_CELLS; right <= cols; right++) {
           const after = right < cols ? all(top, bottom, right, right + 1) : 0;
           const above = top > 0 ? all(top - 1, top, left, right) : 0;
           const below =
             bottom < rows ? all(bottom, bottom + 1, left, right) : 0;
+          const wide = CLUED * (right - left);
+          if (
+            (right < cols && after < tall) ||
+            (top > 0 && above < wide) ||
+            (bottom < rows && below < wide)
+          )
+            continue;
           const outside = before + after + above + below;
           const inside = all(top, bottom, left, right);
           // (Ties go to the bigger rectangle: a side with no clues goes as far as the lines.)
@@ -158,8 +172,8 @@ export function gridByClues(raster: Raster, result: GridResult): GridResult {
   return { ...result, grid: result.within(found.rect), debug };
 }
 
-/** Whether `b` has clues just outside it in most lanes, on one side at least. (A few stray
- * digit-like things in a picture can make a small rectangle that fits them.) */
+/** Whether `b` has clues just outside it in most lanes, on one side at least. (Not, say, a
+ * rectangle as big as `cells`, with nothing outside it.) */
 export function convincing(b: Bounds): boolean {
   const { top, bottom, left, right } = b.rect;
   const { before, after, above, below } = b.sides;

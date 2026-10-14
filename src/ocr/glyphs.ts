@@ -2,10 +2,10 @@
  * Finding the glyphs (digits, mostly) of each lane's clues, once the grid is known.
  *
  * Each column's clues are above it, between its two lines carried on upward, and each row's are
- * left of it. Within a lane, the background is whatever color is commonest nearby; ink is
- * anything different enough from it. The glyphs are the connected blobs of ink in a run outward
- * from the grid, each no further from the last than about a cell's width. (Further out, there's
- * likely a title, or buttons.)
+ * left of it. Within a lane, the background is whatever color is commonest nearby (or, for a
+ * clue in a box of its own, the box's color); ink is anything different enough from it. The
+ * glyphs are the connected blobs of ink in a run outward from the grid, each no further from the
+ * last than about a cell's width. (Further out, there's likely a title, or buttons.)
  */
 
 import type { Grid } from './grid.ts';
@@ -69,6 +69,15 @@ const X_REACH = 0.08;
 const X_COVERAGE = 0.9;
 /** How much of a blob's contrast its ink must have to be strong (not an anti-aliased edge). */
 const STRONG_INK = 0.8;
+/** A box of its own behind a clue (see `findBoxes`): how close (in any of R, G, B) to the color
+ * where it starts a pixel must be to be part of it; the least it can be across, and the most, as
+ * fractions of a cell; how much of its bounds it and what it encloses must fill; and how much it
+ * must fill by itself. */
+const BOX_FLAT = 32;
+const BOX_MIN = 0.6;
+const BOX_MAX = 1.5;
+const BOX_SOLID = 0.75;
+const BOX_OWN = 0.6;
 const DIRECTIONS = [
   [0, 1],
   [1, 0],
@@ -313,6 +322,8 @@ type Blob = {
   touchesSide: boolean;
   /** Whether it was found under something else drawn over it, in another color. */
   struck?: boolean;
+  /** The ends, along the lane, of the box it's in, if it's in a box of its own. */
+  box?: [number, number];
 };
 
 /** Every glyph-shaped blob in `lane`, however faint, and wherever it is along it. (For telling
@@ -337,13 +348,24 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
     return (y * raster.width + x) * 3;
   };
 
-  const background = backgrounds(raster, lane, pixel, pitch);
+  // Inside a box of its own, a clue's background is the box. (And the box isn't the background
+  // of anything outside it.)
+  const boxes = findBoxes(raster, lane, pixel, pitch);
+  const background = backgrounds(
+    raster,
+    lane,
+    pixel,
+    pitch,
+    (a, c) => boxes.of[a * width + c] !== 0
+  );
   // How different each pixel is from the background (whichever is closer).
   const diff = new Uint8Array(length * width);
   for (let a = 0; a < length; a++) {
-    const bgs = background[a]!;
+    const around = background[a]!;
     for (let c = 0; c < width; c++) {
       const i = pixel(a, c);
+      const box = boxes.of[a * width + c]!;
+      const bgs = box === 0 ? around : [boxes.boxes[box - 1]!.color];
       diff[a * width + c] = Math.min(
         ...bgs.map((bg) =>
           Math.max(
@@ -412,16 +434,22 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
     nextLabel += struck.labels;
     candidates.push(...struck.glyphs);
   }
-  // Outward from the grid, until there's a gap of more than a cell.
-  candidates.sort((p, q) => q.a1 - p.a1);
+  // Outward from the grid, until there's a gap of more than a cell. (A glyph in a box of its own
+  // reaches as far as its box does: the boxes are what's spaced out.)
+  for (const b of candidates) {
+    const box = boxes.of[firstPixel(b, fine, width)]!;
+    if (box !== 0) b.box = boxes.boxes[box - 1]!.ends;
+  }
+  const ends = (b: Blob) => b.box ?? [b.a0, b.a1];
+  candidates.sort((p, q) => ends(q)[1] - ends(p)[1]);
   const kept: Blob[] = [];
   let frontier = length;
   let k = 0;
   for (; k < candidates.length; k++) {
     const b = candidates[k]!;
-    if (frontier - b.a1 > pitch) break;
+    if (frontier - ends(b)[1] > pitch) break;
     kept.push(b);
-    frontier = Math.min(frontier, b.a0);
+    frontier = Math.min(frontier, ends(b)[0]);
   }
 
   const asGlyph = (b: Blob) => glyph(raster, lane, b, fine, diff, xy);
@@ -443,12 +471,17 @@ function laneGlyphs(raster: Raster, lane: Lane, pitch: number): Found {
  * whose color is spread over many shades, beside a bold "10" filling a cell of its own (sample
  * 12, whose crossed-out "10"s were lost that way). So the color to either side has to be the
  * commonest over two cells, too, as another background would be.)
+ *
+ * Pixels that `skip` says are in a box of their own (see `findBoxes`) don't count: such a box is
+ * the background of what's in it, and of nothing else. Where they leave nothing to count, the
+ * background is that of the nearest place that has something.
  */
 function backgrounds(
   raster: Raster,
   lane: Lane,
   pixel: (a: number, c: number) => number,
-  pitch: number
+  pitch: number,
+  skip: (a: number, c: number) => boolean
 ): RGB[][] {
   const block = Math.max(4, Math.round(pitch / 3));
   const blocks = Math.ceil(lane.length / block);
@@ -462,6 +495,7 @@ function backgrounds(
     const hist = new Map<number, Bin>();
     for (let a = k * block; a < Math.min(lane.length, (k + 1) * block); a++) {
       for (let c = c0; c < c1; c++) {
+        if (skip(a, c)) continue;
         const i = pixel(a, c);
         const [r, g, b] = [
           raster.data[i]!,
@@ -484,10 +518,12 @@ function backgrounds(
     for (const bin of hist.values()) if (bin.n > best.n) best = bin;
     return [best.r / best.n, best.g / best.n, best.b / best.n];
   };
-  /** The commonest color over blocks `from` to `to` (inclusive). */
+  /** The commonest color over blocks `from` to `to` (inclusive), or over as many more either
+   * side as it takes to find any. */
   const over = (from: number, to: number): RGB => {
     const merged = new Map<number, Bin>();
-    for (let j = Math.max(0, from); j <= Math.min(blocks - 1, to); j++) {
+    const add = (j: number) => {
+      if (j < 0 || j >= blocks) return;
       for (const [key, bin] of histograms[j]!) {
         const m = merged.get(key);
         if (!m) merged.set(key, { ...bin });
@@ -498,6 +534,11 @@ function backgrounds(
           m.b += bin.b;
         }
       }
+    };
+    for (let j = from; j <= to; j++) add(j);
+    for (let more = 1; merged.size === 0 && more < blocks; more++) {
+      add(from - more);
+      add(to + more);
     }
     return commonest(merged);
   };
@@ -522,6 +563,180 @@ function backgrounds(
     { length: lane.length },
     (_, a) => colors[Math.floor(a / block)]!
   );
+}
+
+/** A box of its own behind a clue: its color, and its ends along the lane. */
+type Box = { color: RGB; ends: [number, number] };
+
+/**
+ * The boxes in `lane` that each hold a clue of their own, as in sample 34, whose clues are white
+ * on black squares, a little apart, on white: `of` says which box (counting from 1) each pixel is
+ * in, or 0. With boxes about a cell long and gaps between them, which color is commonest changes
+ * from place to place, so the background can't be told that way. But a box encloses its clue,
+ * and a clue never encloses its background.
+ *
+ * A box is an area of one flat color, about a cell across both ways, that with what it encloses
+ * (the clue) nearly fills its bounds, and by itself fills most of them (a bold "0" encloses its
+ * middle too, but it's narrower than that, and mostly not ink). Past both its ends there has to be
+ * another color: where the clues are in cells that carry on the grid's lines (samples 12 and
+ * 19), each cell is such an area, but past the line at its end is another just like it, and it's
+ * no different from the background.
+ */
+function findBoxes(
+  raster: Raster,
+  lane: Lane,
+  pixel: (a: number, c: number) => number,
+  pitch: number
+): { of: Int32Array; boxes: Box[] } {
+  const { length, width } = lane;
+  const of = new Int32Array(length * width);
+  const boxes: Box[] = [];
+  const [least, most] = [BOX_MIN * pitch, BOX_MAX * pitch];
+  if (width < least) return { of, boxes };
+  // (The lane's pixels, copied out: this looks at each of them several times.)
+  const colors = new Uint8Array(length * width * 3);
+  for (let a = 0; a < length; a++) {
+    for (let c = 0; c < width; c++) {
+      const i = pixel(a, c);
+      colors.set(raster.data.subarray(i, i + 3), (a * width + c) * 3);
+    }
+  }
+  const rgb = (p: number): RGB => [
+    colors[p * 3]!,
+    colors[p * 3 + 1]!,
+    colors[p * 3 + 2]!,
+  ];
+  // Areas of one color: 4-connected, so that what they enclose is sealed in.
+  const area = new Int32Array(length * width);
+  const stack: number[] = [];
+  let label = 0;
+  let [r, g, b] = [0, 0, 0];
+  const join = (q: number) => {
+    if (
+      area[q] !== 0 ||
+      Math.abs(colors[q * 3]! - r) > BOX_FLAT ||
+      Math.abs(colors[q * 3 + 1]! - g) > BOX_FLAT ||
+      Math.abs(colors[q * 3 + 2]! - b) > BOX_FLAT
+    )
+      return;
+    area[q] = label;
+    stack.push(q);
+  };
+  for (let start = 0; start < area.length; start++) {
+    if (area[start] !== 0) continue;
+    [r, g, b] = rgb(start);
+    label++;
+    let [a0, a1, c0, c1] = [Infinity, -Infinity, Infinity, -Infinity];
+    const sum = [0, 0, 0];
+    let pixels = 0;
+    area[start] = label;
+    stack.push(start);
+    while (stack.length > 0) {
+      const p = stack.pop()!;
+      const pa = Math.floor(p / width);
+      const pc = p - pa * width;
+      pixels++;
+      sum[0]! += colors[p * 3]!;
+      sum[1]! += colors[p * 3 + 1]!;
+      sum[2]! += colors[p * 3 + 2]!;
+      if (pa < a0) a0 = pa;
+      if (pa >= a1) a1 = pa + 1;
+      if (pc < c0) c0 = pc;
+      if (pc >= c1) c1 = pc + 1;
+      if (pc + 1 < width) join(p + 1);
+      if (pa + 1 < length) join(p + width);
+      if (pc > 0) join(p - 1);
+      if (pa > 0) join(p - width);
+    }
+    const [long, wide] = [a1 - a0, c1 - c0];
+    if (long < least || long > most || wide < least || wide > most) continue;
+    const size = long * wide;
+    if (pixels < BOX_OWN * size) continue;
+    const color = sum.map((v) => v / pixels) as RGB;
+
+    // What it encloses: whatever else is in its bounds that can't be reached from their edge.
+    const outside = new Uint8Array(size);
+    const at = (a: number, c: number) => (a - a0) * wide + (c - c0);
+    const reach = (a: number, c: number) => {
+      if (a < a0 || a >= a1 || c < c0 || c >= c1) return;
+      if (area[a * width + c] === label || outside[at(a, c)] !== 0) return;
+      outside[at(a, c)] = 1;
+      stack.push(a * width + c);
+    };
+    for (let a = a0; a < a1; a++) {
+      reach(a, c0);
+      reach(a, c1 - 1);
+    }
+    for (let c = c0; c < c1; c++) {
+      reach(a0, c);
+      reach(a1 - 1, c);
+    }
+    while (stack.length > 0) {
+      const p = stack.pop()!;
+      const pa = Math.floor(p / width);
+      const pc = p - pa * width;
+      for (let da = -1; da <= 1; da++)
+        for (let dc = -1; dc <= 1; dc++) reach(pa + da, pc + dc);
+    }
+    const enclosed: number[] = [];
+    const ink = { a0: Infinity, a1: -Infinity, c0: Infinity, c1: -Infinity };
+    let inked = 0;
+    for (let a = a0; a < a1; a++) {
+      for (let c = c0; c < c1; c++) {
+        const p = a * width + c;
+        if (area[p] === label || outside[at(a, c)] !== 0) continue;
+        enclosed.push(p);
+        if (colorDiff(rgb(p), color) <= INK_THRESHOLD) continue;
+        inked++;
+        ink.a0 = Math.min(ink.a0, a);
+        ink.a1 = Math.max(ink.a1, a + 1);
+        ink.c0 = Math.min(ink.c0, c);
+        ink.c1 = Math.max(ink.c1, c + 1);
+      }
+    }
+    if (pixels + enclosed.length < BOX_SOLID * size) continue;
+    // (As `isGlyph` has it: not just a speck.)
+    if (inked < 4) continue;
+    if (Math.max(ink.a1 - ink.a0, ink.c1 - ink.c0) < 0.12 * pitch) continue;
+
+    // Past each end, mostly another color. (One end can be the lane's, but not both: a lane
+    // that's all one area has a background, not a box.)
+    const beyond = Math.max(3, Math.round(pitch / 5));
+    const another = (from: number, to: number) => {
+      let [same, all] = [0, 0];
+      for (let a = Math.max(0, from); a < Math.min(length, to); a++) {
+        for (let c = c0; c < c1; c++) {
+          all++;
+          if (colorDiff(rgb(a * width + c), color) <= BOX_FLAT) same++;
+        }
+      }
+      return all === 0 ? undefined : same < 0.5 * all;
+    };
+    const past = [
+      another(a0 - 1 - beyond, a0 - 1),
+      another(a1 + 1, a1 + 1 + beyond),
+    ];
+    if (past.includes(false) || !past.includes(true)) continue;
+
+    boxes.push({ color, ends: [a0, a1] });
+    for (let a = a0; a < a1; a++) {
+      for (let c = c0; c < c1; c++) {
+        const p = a * width + c;
+        if (area[p] === label || outside[at(a, c)] === 0) of[p] = boxes.length;
+      }
+    }
+  }
+  return { of, boxes };
+}
+
+/** One of `blob`'s pixels. */
+function firstPixel(blob: Blob, labels: Int32Array, width: number): number {
+  for (let a = blob.a0; a < blob.a1; a++) {
+    for (let c = blob.c0; c < blob.c1; c++) {
+      if (labels[a * width + c] === blob.label) return a * width + c;
+    }
+  }
+  return blob.a0 * width + blob.c0;
 }
 
 /**

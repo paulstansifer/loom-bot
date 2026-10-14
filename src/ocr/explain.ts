@@ -15,16 +15,28 @@
  * changed for no reason (taking every group as crossed out would agree with a finished grid
  * perfectly).
  *
+ * Only where the clues as read don't make sense, though. If they fit, their totals agree, and
+ * they have a solution, they're almost certainly right, and what the grid contradicts is the
+ * person's mistakes: sample 33's clues are read right, but its grid has some 50 cells wrong, in
+ * 14 lanes, and taking the "1"s as crossed out agreed with it better.
+ *
  * `readWithGrid` puts it all together: the clues as read, the grid's state, these second
  * thoughts, and the clues that couldn't be read worked out from the grid.
  */
 
 import { blackAndWhite } from '../solve/puzzle.ts';
+import { solve } from '../solve/solve.ts';
 import { contradicted, type State, stateCells } from './cells.ts';
 import type { Grid } from './grid.ts';
 import type { Naming } from './names.ts';
 import type { Raster } from './raster.ts';
-import { cluesNamed, readClues, type Reading, THRESHOLD } from './read.ts';
+import {
+  cluesNamed,
+  fits,
+  readClues,
+  type Reading,
+  THRESHOLD,
+} from './read.ts';
 import { repair } from './repair.ts';
 import { SCREENSHOT, type Settings } from './settings.ts';
 
@@ -62,6 +74,26 @@ const STRIKE_COST = 0.5;
 const RENAME_COST = 0.4;
 /** What the totals not agreeing costs. */
 const TOTALS = 2;
+/** How long to look for a solution to the clues as read, to tell whether they make sense. (If
+ * that's not long enough, they get second thoughts.) */
+const SOLVE_TIME_MS = 250;
+
+/** Whether clues make sense by themselves: they fit, their totals agree, and they have a
+ * solution. */
+export function sound(columns: number[][], rows: number[][]): boolean {
+  const total = (lanes: number[][]) =>
+    lanes.flat().reduce((sum, n) => sum + n, 0);
+  if (
+    !columns.every((l) => fits(l, rows.length)) ||
+    !rows.every((l) => fits(l, columns.length)) ||
+    total(columns) !== total(rows)
+  )
+    return false;
+  const answer = solve(blackAndWhite(rows, columns), {
+    timeLimitMs: SOLVE_TIME_MS,
+  });
+  return answer.kind !== 'no-solution' && answer.kind !== 'out-of-time';
+}
 
 /** How little sense clues make, given the grid's state: lower is better. */
 export function nonsense(
@@ -94,7 +126,7 @@ export function nonsense(
 /**
  * `reading`, with the groups that seem to be crossed out named "x", and those that seem to be
  * misnamed named by their second-nearest template, and its clues read again that way. (The clues
- * are as read, not yet worked out from the grid.)
+ * are as read, not yet worked out from the grid.) Clues that make sense as read are left alone.
  */
 export function explainGroups(
   reading: Reading,
@@ -105,6 +137,8 @@ export function explainGroups(
   const names = [...reading.names];
   const struck: number[] = [];
   const renamed: number[] = [];
+  const asRead = cluesNamed(reading.numberGlyphs, reading.groups, names);
+  if (sound(asRead.columns, asRead.rows)) return { reading, struck, renamed };
   const score = (ns: Naming[], cost: number) => {
     const { columns, rows } = cluesNamed(
       reading.numberGlyphs,

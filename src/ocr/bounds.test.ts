@@ -67,6 +67,16 @@ void test("a few lanes' clues crossed out, next to the grid", () => {
   assert.deepEqual(found?.rect, { top: 2, bottom: 6, left: 2, right: 8 });
 });
 
+void test("something like a digit in the grid doesn't bring a side in", () => {
+  // Clues on the left, and one filled cell that looks like a digit (as in sample 33). Stopping
+  // just short of it would put it outside, where it counts for the rectangle, not against it.
+  const found = boundsByDigits(
+    cells('.#........', '##........', '.#.....#..', '##........', '.#........')
+  );
+  assert.deepEqual(found?.rect, { top: 0, bottom: 5, left: 2, right: 10 });
+  assert.ok(found && convincing(found));
+});
+
 void test('a few stray digit-like things are not clues', () => {
   const found = boundsByDigits(
     cells(
