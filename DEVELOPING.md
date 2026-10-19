@@ -659,10 +659,16 @@ bot. A reply takes 0.1 to 0.6 s for a screenshot, and up to 2.5 s for a big phot
 People can give the bot commands in comments (Devvit's `onCommentCreate` trigger;
 `handleComment` in `commands.ts`):
 
-- "!delete", replying to one of the bot's comments, deletes it, if it's from the post's author
-  (a crosspost's is whoever crossposted it, since that's where the bot replied) or one of the
-  subreddit's moderators. Anyone else is ignored. Their
-  "!delete" comment stays, since the bot can't delete other people's comments.
+- "!delete", replying to one of the bot's comments, or as a top-level comment on a post (for
+  when the bot made no comment), forgets the post, if it's from the post's author (a crosspost's
+  is whoever crossposted it, since that's where the bot replied) or one of the subreddit's
+  moderators. Anyone else is ignored. It deletes every comment the bot made about the post (their
+  IDs are kept in Redis, under `responses:` and the post's ID, by `respond`; use it, not
+  `submitComment`, for any new comment about a post), and the post's picture URL, and replaces its
+  debugging information with a note that it was deleted. The glyph view's picture stays on
+  Reddit, since an app can't delete what it uploads, but nothing links to it. Their "!delete"
+  comment stays, since the bot can't delete other people's comments. `PRIVACY.md` says all this:
+  keep it true. Likewise, `console.log` must not say what a picture is, or where from.
 - "!whynot", as a top-level comment on a post, gets the debugging information from when the bot
   looked at the post. It's kept in Redis, under the post's ID, for a year. (Posts
   the bot skipped, for having no picture or an opted-out author, or for being removed, locked
@@ -687,11 +693,13 @@ The bot's profile picture is the app's icon, `bot-logo.png` (`marketingAssets.ic
 `devvit.json`; `bot-logo.xcf` is its GIMP source). It's uploaded with the app, by `devvit upload`
 or a playtest. Devvit wants it square, 256 to 1024 px, and warns that it's under 1024.
 
-Not yet known, since it needs a playtest on Devvit:
+Confirmed in a playtest on the dev subreddit (`number_loom_bot_dev`), where every feature above
+works: the post that `onPostCreate` hands over has its pictures ready, `Post.gallery`'s URLs are
+the expected ones, and `media.upload` takes the glyph view as a `data:` URL.
 
-- Whether the post `onPostCreate` hands over is far enough along for its pictures to be ready,
-  and whether `Post.gallery`'s URLs are the ones expected.
+Not yet known, since it needs the app to be published:
+
 - Whether the domains for `fetch` in `devvit.json` (`i.redd.it` and `preview.redd.it`) need
   Reddit's approval before the app is published. (They work in a playtest.)
-- Whether `media.upload` takes a `data:` URL, and one as big as a photo of paper's glyph view
-  (sample 13's is a 3.4 MB PNG; a screenshot's is 0.5 to 1.3 MB).
+- Whether `media.upload` copes with the biggest glyph views (sample 13's, a photo of paper, is a
+  3.4 MB PNG; a screenshot's is 0.5 to 1.3 MB). TODO: check this on a real post.

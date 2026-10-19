@@ -1,7 +1,8 @@
 /**
  * Commands people can give the bot in comments:
  *
- * - "!delete", replying to one of the bot's comments, deletes it.
+ * - "!delete", replying to one of the bot's comments, or on its own on a post, forgets the post:
+ *   it deletes every comment the bot made about it, and what it kept.
  * - "!whynot", as a top-level comment on a post, gets what the bot made of it: what was read, how
  *   long it took, and what went wrong (saved when the bot looked at the post, for
  *   `DEBUGGING_DAYS`). The bot doesn't reply to a post it can't read, so this is how to find out.
@@ -11,7 +12,7 @@
  *   such answer.
  * - "!optout", anywhere, stops the bot replying to their posts, and "!optin" undoes that.
  *
- * The first three are only for the post's author and the subreddit's moderators.
+ * The first four are only for the post's author and the subreddit's moderators.
  */
 
 import { media, reddit, redis } from '@devvit/web/server';
@@ -45,6 +46,8 @@ const optOutKey = (user: T2) => `optout:${user}`;
 const debuggingKey = (post: T3) => `debugging:${post}`;
 const explainedKey = (post: T3) => `explained:${post}`;
 const pictureKey = (post: T3) => `picture:${post}`;
+/** The comments the bot has made about a post, as the fields of a hash. */
+const responsesKey = (post: T3) => `responses:${post}`;
 
 const viewLink = (url: string) => `[Glyph detection debugging image](${url})`;
 
@@ -64,6 +67,49 @@ export async function saveDebugging(
   );
   await redis.set(debuggingKey(post), debugging, { expiration });
   if (picture) await redis.set(pictureKey(post), picture, { expiration });
+}
+
+/** Notes that `comment` is the bot's, about `post`, so that "!delete" can find it. */
+export async function recordResponse(post: T3, comment: T1): Promise<void> {
+  const key = responsesKey(post);
+  await redis.hSet(key, { [comment]: '1' });
+  await redis.expire(key, DEBUGGING_DAYS * 24 * 60 * 60);
+}
+
+/** Comments as the bot, and records it (see `recordResponse`). */
+export async function respond(post: T3, parent: T1 | T3, text: string) {
+  const comment = await reddit.submitComment({
+    id: parent,
+    text,
+    runAs: 'APP',
+  });
+  await recordResponse(post, comment.id);
+  return comment;
+}
+
+/**
+ * Forgets `post`: deletes every comment the bot made about it (and `also`, if given), and what it
+ * kept. All that stays is a note that this was done, in place of the debugging information. (The
+ * glyph view's picture stays on Reddit, since an app can't delete what it uploads, but nothing
+ * links to it.)
+ */
+async function forget(post: T3, also?: T1): Promise<void> {
+  const comments = new Set(await redis.hKeys(responsesKey(post)));
+  if (also) comments.add(also);
+  for (const comment of comments) {
+    try {
+      await (await reddit.getCommentById(comment as T1)).delete();
+    } catch (e) {
+      // (Most likely already gone.)
+      console.error(`${post}: couldn't delete ${comment}: ${String(e)}`);
+    }
+  }
+  await redis.del(pictureKey(post), responsesKey(post));
+  await redis.set(
+    debuggingKey(post),
+    'The information about this post was deleted, as its author or a moderator asked.',
+    { expiration: new Date(Date.now() + DEBUGGING_DAYS * 24 * 60 * 60 * 1000) }
+  );
 }
 
 /** Does what a new comment says to, if it's a command. */
@@ -100,6 +146,19 @@ export async function handleComment(
     return;
   }
 
+  // On a post, "!delete" is for when the bot made no comment to reply to.
+  if (which === 'delete' && comment.parentId.startsWith('t3_')) {
+    if (!(await fromAuthorOrMod(input))) {
+      console.log(
+        `${id}: !delete from neither the post's author nor a moderator`
+      );
+      return;
+    }
+    await forget(comment.postId as T3);
+    console.log(`${id}: forgot ${comment.postId}, as ${user} asked`);
+    return;
+  }
+
   // The rest are replies to the bot's comments.
   if (!comment.parentId.startsWith('t1_')) return;
   const parent = await reddit.getCommentById(comment.parentId as T1);
@@ -114,8 +173,8 @@ export async function handleComment(
         );
         return;
       }
-      await parent.delete();
-      console.log(`${id}: deleted ${parent.id}, as ${user} asked`);
+      await forget(comment.postId as T3, parent.id);
+      console.log(`${id}: forgot ${comment.postId}, as ${user} asked`);
       return;
     case 'debug': {
       // (Only a reply to the post itself, the bot's one comment, has any.)
@@ -164,7 +223,7 @@ async function explain(input: OnCommentCreateRequest, post: T3): Promise<void> {
   try {
     const view = await uploadGlyphView(post);
     const text = view ? `${debugging}\n\n${viewLink(view)}` : debugging;
-    await reddit.submitComment({ id, text, runAs: 'APP' });
+    await respond(post, id, text);
   } catch (e) {
     // Nobody was told, so the next one to ask still can be.
     await redis.del(explainedKey(post));

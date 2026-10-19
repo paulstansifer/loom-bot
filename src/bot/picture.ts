@@ -64,8 +64,6 @@ export async function downloadPicture(url: string): Promise<Raster> {
     headers: { Accept: 'image/png,image/jpeg' },
   });
   if (!response.ok)
-    throw new Error(
-      `downloading ${url}: ${response.status} ${response.statusText}`
-    );
+    throw new Error(`downloading: ${response.status} ${response.statusText}`);
   return decodePicture(new Uint8Array(await response.arrayBuffer()));
 }

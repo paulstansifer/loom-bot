@@ -1,0 +1,2 @@
+# Terms and Conditions of `number-loom-bot`
+Interactions with `number-loom-bot` must respect the [Reddit Terms and Conditions](https://redditinc.com/policies/user-agreement) and also follow the applicable rules of the subreddit in question.

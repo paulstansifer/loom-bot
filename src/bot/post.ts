@@ -3,7 +3,7 @@
 import { type Post, reddit } from '@devvit/web/server';
 import type { T3 } from '@devvit/shared-types/tid.js';
 
-import { optedOut, saveDebugging } from './commands.ts';
+import { optedOut, respond, saveDebugging } from './commands.ts';
 import { downloadPicture, firstPicture } from './picture.ts';
 import { debug, type Reply, replyTo } from './reply.ts';
 
@@ -65,8 +65,7 @@ export async function handlePost(id: T3): Promise<void> {
       `Picture: ${url}`,
     ]);
   }
-  console.log(`${id}: ${reply.status} (${url})`);
+  console.log(`${id}: ${reply.text ? 'replied' : 'did not reply'}`);
   await saveDebugging(id, reply.debugging, url);
-  if (reply.text)
-    await reddit.submitComment({ id, text: reply.text, runAs: 'APP' });
+  if (reply.text) await respond(id, id, reply.text);
 }
